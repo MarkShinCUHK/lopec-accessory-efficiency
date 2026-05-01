@@ -1572,24 +1572,37 @@ function UsageGuideModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <figure className="usageGuideImage">
-          <Image
-            src="/usage-graph-guide-plot.png"
-            alt="가격 타겟 검색 결과를 그래프로 효율 확인하기 모달에서 본 예시"
-            width={940}
-            height={630}
-            sizes="(max-width: 900px) calc(100vw - 56px), 820px"
-          />
-        </figure>
+        <div className="usageGuideImages">
+          <figure className="usageGuideFigure">
+            <Image
+              src="/guide/graph-price-score.png"
+              alt="총 가격과 로펙점수 상승량을 비교하는 가격 점수 그래프"
+              width={963}
+              height={729}
+              sizes="(max-width: 900px) calc(100vw - 56px), 400px"
+            />
+            <figcaption>가격 / 점수</figcaption>
+          </figure>
+          <figure className="usageGuideFigure">
+            <Image
+              src="/guide/graph-efficiency-score.png"
+              alt="1점당 골드와 로펙점수 상승량을 비교하는 효율 점수 그래프"
+              width={948}
+              height={717}
+              sizes="(max-width: 900px) calc(100vw - 56px), 400px"
+            />
+            <figcaption>효율 / 점수</figcaption>
+          </figure>
+        </div>
 
         <ul className="usageGuideList">
           <li>
             <strong>가격 / 점수</strong>
-            총 가격 대비 로펙점수 상승량을 봅니다. 같은 가격이면 더 위에 있는 점이 더 좋습니다.
+            예산 안에서 점수를 얼마나 크게 올릴 수 있는지 볼 때 씁니다. 같은 가격대라면 더 위에 있는 점이 좋고, 비용이 조금 더 들더라도 점수 상승량이 큰 매물을 고르기 쉽습니다.
           </li>
           <li>
             <strong>효율 / 점수</strong>
-            1점당 골드 대비 점수 상승량을 봅니다. 왼쪽 위에 가까울수록 싸게 많이 오르는 후보입니다.
+            골드 대비 낭비가 적은 매물을 찾을 때 씁니다. 왼쪽에 있을수록 1점당 골드가 낮고, 위에 있을수록 점수 상승량이 커서 가성비와 체급을 같이 비교할 수 있습니다.
           </li>
           <li>
             <strong>색상</strong>

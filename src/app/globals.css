@@ -105,7 +105,7 @@ select {
 .usageGuideModal {
   display: grid;
   gap: 14px;
-  width: min(860px, 100%);
+  width: min(1040px, 100%);
   max-height: calc(100vh - 44px);
   padding: 18px;
   overflow: auto;
@@ -153,18 +153,36 @@ select {
   line-height: 1.25;
 }
 
-.usageGuideImage {
+.usageGuideImages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.usageGuideFigure {
+  display: grid;
+  gap: 8px;
+  align-content: start;
   margin: 0;
+  padding: 10px;
   overflow: hidden;
-  background: #101826;
+  background: #ffffff;
   border: 1px solid #d8e2ef;
   border-radius: 8px;
 }
 
-.usageGuideImage img {
+.usageGuideFigure img {
   display: block;
   width: 100%;
   height: auto;
+  border: 1px solid #e1e8f3;
+  border-radius: 6px;
+}
+
+.usageGuideFigure figcaption {
+  color: #1f6fe5;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .usageGuideList {
@@ -2234,7 +2252,7 @@ button:disabled {
 [data-theme="dark"] .slotTargetCard,
 [data-theme="dark"] .graphRangeControls,
 [data-theme="dark"] .discordContactBox,
-[data-theme="dark"] .usageGuideImage,
+[data-theme="dark"] .usageGuideFigure,
 [data-theme="dark"] .usageGuideList li,
 [data-theme="dark"] .metric,
 [data-theme="dark"] .combinationItem,
@@ -2256,6 +2274,10 @@ button:disabled {
 
 [data-theme="dark"] .usageGuideList strong {
   color: #d8e0ec;
+}
+
+[data-theme="dark"] .usageGuideFigure figcaption {
+  color: #8cc2ff;
 }
 
 [data-theme="dark"] .guideStep.locked strong,
@@ -2437,7 +2459,8 @@ button:disabled {
   }
 
   .searchRow.priceTargetSearchRow,
-  .searchRow.optionTargetSearchRow {
+  .searchRow.optionTargetSearchRow,
+  .usageGuideImages {
     grid-template-columns: 1fr;
   }
 
