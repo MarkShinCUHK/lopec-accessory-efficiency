@@ -203,6 +203,7 @@ interface SearchProgressState {
   percent: number;
   message: string;
   isWaiting: boolean;
+  isIndeterminate?: boolean;
   completedRequests: number;
   totalRequests: number;
   retryAttempt?: number;
@@ -223,14 +224,6 @@ interface SearchProgressResponse {
     retryDelayMs?: number;
     retryStartedAt?: number;
     result?: EvaluationResponse;
-  };
-}
-
-interface SearchStartResponse {
-  ok: boolean;
-  message?: string;
-  data?: {
-    progressId: string;
   };
 }
 
@@ -487,6 +480,7 @@ export default function AccessoryEfficiencyClient() {
           percent: payload.data.percent,
           message: payload.data.message,
           isWaiting: payload.data.status === "waiting",
+          isIndeterminate: false,
           completedRequests: payload.data.completedRequests,
           totalRequests: payload.data.totalRequests,
           retryAttempt: payload.data.retryAttempt,
@@ -856,13 +850,12 @@ export default function AccessoryEfficiencyClient() {
       return;
     }
 
-    const progressId = crypto.randomUUID();
-
-    setCurrentProgressId(progressId);
+    setCurrentProgressId(null);
     setSearchProgress({
       percent: 0,
-      message: "검색 준비 중",
+      message: "경매장 검색 중 · 완료될 때까지 기다려 주세요",
       isWaiting: false,
+      isIndeterminate: true,
       completedRequests: 0,
       totalRequests: 1
     });
@@ -896,21 +889,33 @@ export default function AccessoryEfficiencyClient() {
           targetSlots: searchMode === "priceTarget" ? targetSlots : undefined,
           searchMode,
           scoringMode,
-          apiKey: activeApiKey || undefined,
-          progressId
+          apiKey: activeApiKey || undefined
         })
       });
 
-      const payload = (await result.json()) as SearchStartResponse;
+      const payload = (await result.json()) as EvaluationResponse;
 
       if (!payload.ok) {
         throw new Error(payload.message ?? "검색을 시작하지 못했습니다.");
       }
+
+      setResponse(payload);
+      setResultPage(1);
+      setSearchProgress({
+        percent: 100,
+        message: "검색 완료",
+        isWaiting: false,
+        isIndeterminate: false,
+        completedRequests: 1,
+        totalRequests: 1
+      });
+      setIsSearching(false);
     } catch (error) {
       setSearchProgress((current) => ({
         ...current,
         message: error instanceof Error ? error.message : "요청에 실패했습니다.",
-        isWaiting: false
+        isWaiting: false,
+        isIndeterminate: false
       }));
       setResponse({
         ok: false,
@@ -1748,7 +1753,9 @@ function SearchProgressIndicator({
   progress: SearchProgressState;
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const requestLabel = `완료 ${progress.completedRequests}회 · 예상 ${progress.totalRequests}회`;
+  const requestLabel = progress.isIndeterminate
+    ? "결과 수집 중"
+    : `완료 ${progress.completedRequests}회 · 예상 ${progress.totalRequests}회`;
   const retryRemainingSeconds = readRetryRemainingSeconds(progress, now);
   const progressMessage =
     progress.isWaiting && retryRemainingSeconds !== null
@@ -1766,11 +1773,17 @@ function SearchProgressIndicator({
   }, [progress.isWaiting, progress.retryDelayMs, progress.retryStartedAt]);
 
   return (
-    <div className={["searchProgress", progress.isWaiting ? "waiting" : ""].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "searchProgress",
+        progress.isWaiting ? "waiting" : "",
+        progress.isIndeterminate ? "indeterminate" : ""
+      ].filter(Boolean).join(" ")}
+    >
       <div className="searchProgressTop">
         <span className="spinner" aria-hidden="true" />
         <strong>{progressMessage}</strong>
-        <b>{requestLabel} · {progress.percent}%</b>
+        <b>{progress.isIndeterminate ? requestLabel : `${requestLabel} · ${progress.percent}%`}</b>
       </div>
       <div className="progressTrack" aria-label="검색 진행률">
         <div className="progressFill" style={{ width: `${progress.percent}%` }} />

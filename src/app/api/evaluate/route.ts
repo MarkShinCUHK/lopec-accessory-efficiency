@@ -97,19 +97,24 @@ export async function POST(request: Request) {
     );
 
     initSearchProgress(progressId, initialRequestCount, "캐릭터 정보 확인 중");
-    void runEvaluation(body, progressId).catch((error: unknown) => {
+
+    try {
+      const result = await evaluateRequest(body, progressId);
+
+      finishSearchProgress(progressId, "검색 완료", result);
+      return NextResponse.json(result);
+    } catch (error) {
       const message = readEvaluationErrorMessage(error);
 
       failSearchProgress(progressId, message);
-    });
-
-    return NextResponse.json({
-      ok: true,
-      data: {
-        progressId
-      },
-      message: "검색을 시작했습니다."
-    });
+      return NextResponse.json(
+        {
+          ok: false,
+          message
+        },
+        { status: error instanceof LostarkApiError ? error.status : 500 }
+      );
+    }
   } catch (error) {
     return NextResponse.json(
       {
@@ -118,21 +123,6 @@ export async function POST(request: Request) {
       },
       { status: 500 }
     );
-  }
-}
-
-async function runEvaluation(
-  body: EvaluateRequestBody,
-  progressId: string
-): Promise<void> {
-  try {
-    const result = await evaluateRequest(body, progressId);
-
-    finishSearchProgress(progressId, "검색 완료", result);
-  } catch (error) {
-    const message = readEvaluationErrorMessage(error);
-
-    failSearchProgress(progressId, message);
   }
 }
 

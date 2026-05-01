@@ -1,12 +1,11 @@
-import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { verifyLatestLopecFormula } from "@/lib/server/lopec-formula-verifier";
 
-const execFileAsync = promisify(execFile);
 const FRESH_WINDOW_MS = 24 * 60 * 60 * 1000;
-const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
-const STATUS_PATH = path.join(process.cwd(), ".cache", "lopec-verification-status.json");
+const STATUS_PATH = process.env.VERCEL
+  ? path.join("/tmp", "lopec-verification-status.json")
+  : path.join(process.cwd(), ".cache", "lopec-verification-status.json");
 
 export interface LopecVerificationStatus {
   lastAttemptAt: string | null;
@@ -67,20 +66,17 @@ async function runLopecVerification(): Promise<LopecVerificationStatus> {
   const startedAtIso = startedAt.toISOString();
 
   try {
-    const { stdout, stderr } = await execFileAsync("npm", ["run", "verify:lopec"], {
-      cwd: process.cwd(),
-      maxBuffer: 12 * 1024 * 1024,
-      timeout: VERIFY_TIMEOUT_MS
-    });
+    const verification = await verifyLatestLopecFormula();
     const finishedAt = new Date();
-    const outputTail = tailLines(`${stdout}\n${stderr}`.trim(), 24);
     const status: LopecVerificationStatus = {
       lastAttemptAt: startedAtIso,
-      lastSuccessAt: finishedAt.toISOString(),
-      lastFailureAt: null,
+      lastSuccessAt: verification.ok ? finishedAt.toISOString() : null,
+      lastFailureAt: verification.ok ? null : finishedAt.toISOString(),
       lastDurationMs: finishedAt.getTime() - startedAt.getTime(),
-      lastMessage: "최신 로펙 수식 일치 확인을 완료했습니다.",
-      lastOutputTail: outputTail
+      lastMessage: verification.ok
+        ? "최신 로펙 수식 일치 확인을 완료했습니다."
+        : "로펙 수식이 저장된 기준과 다릅니다. 개발자 검토가 필요합니다.",
+      lastOutputTail: tailLines(verification.output, 24)
     };
 
     await writeLopecVerificationStatus(status);
@@ -126,8 +122,13 @@ function normalizeVerificationStatus(status: LopecVerificationStatus): LopecVeri
 }
 
 async function writeLopecVerificationStatus(status: LopecVerificationStatus): Promise<void> {
-  await mkdir(path.dirname(STATUS_PATH), { recursive: true });
-  await writeFile(STATUS_PATH, `${JSON.stringify(status, null, 2)}\n`);
+  try {
+    await mkdir(path.dirname(STATUS_PATH), { recursive: true });
+    await writeFile(STATUS_PATH, `${JSON.stringify(status, null, 2)}\n`);
+  } catch {
+    // Vercel serverless storage is ephemeral and may reject writes in some cases.
+    // Verification should still return the live result to the caller.
+  }
 }
 
 function toView(

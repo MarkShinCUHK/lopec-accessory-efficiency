@@ -592,6 +592,7 @@ select {
 }
 
 .progressTrack {
+  position: relative;
   height: 8px;
   overflow: hidden;
   background: #e8eef7;
@@ -609,6 +610,11 @@ select {
   background: #d08a00;
 }
 
+.searchProgress.indeterminate .progressFill {
+  width: 36% !important;
+  animation: progressIndeterminate 1.15s ease-in-out infinite;
+}
+
 .searchProgress p {
   margin: 0;
   color: #80600f;
@@ -619,6 +625,16 @@ select {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes progressIndeterminate {
+  0% {
+    transform: translateX(-120%);
+  }
+
+  100% {
+    transform: translateX(320%);
   }
 }
 
