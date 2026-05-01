@@ -10,6 +10,7 @@ import {
 } from "@/lib/lostark/auction";
 import { getCharacterState } from "@/lib/lostark/armory";
 import { LostarkApiError } from "@/lib/lostark/client";
+import { readWeaponAttackForEnhancementLevel } from "@/lib/domain/weapon";
 import type {
   AccessoryScoringMode,
   AccessorySlot,
@@ -51,6 +52,7 @@ interface EvaluateRequestBody {
   searchMode?: "optionTarget" | "priceTarget";
   scoringMode?: AccessoryScoringMode;
   targetSlots?: AccessorySlot[];
+  targetWeaponLevel?: number | null;
   progressId?: string;
   apiKey?: string;
 }
@@ -156,6 +158,7 @@ async function evaluateRequest(
   const character = await getCharacterState(characterName, apiKey);
   const scoringMode =
     requestedScoringMode ?? (character.lopec?.simulator?.profile.supportCheck ? "support" : "dealer");
+  const targetWeaponAttack = readTargetWeaponAttack(character, body.targetWeaponLevel);
 
   updateSearchProgress(progressId, {
     message:
@@ -207,7 +210,8 @@ async function evaluateRequest(
       candidatesByType,
       targetSlots,
       maxPrice ?? 0,
-      scoringMode
+      scoringMode,
+      targetWeaponAttack
     );
 
     return {
@@ -251,7 +255,7 @@ async function evaluateRequest(
     totalRequests: Math.max(searchProgress.totalRequests, searchProgress.completedRequests + 1)
   });
 
-  const results = evaluateCandidates(character, candidates, scoringMode);
+  const results = evaluateCandidates(character, candidates, scoringMode, targetWeaponAttack);
 
   return {
     ok: true,
@@ -288,8 +292,20 @@ function buildCharacterSummary(character: Awaited<ReturnType<typeof getCharacter
     lopecScore: character.lopec?.score ?? null,
     isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
     imageUrl: character.imageUrl,
+    weapon: character.weapon,
     accessories: character.accessories
   };
+}
+
+function readTargetWeaponAttack(
+  character: Awaited<ReturnType<typeof getCharacterState>>,
+  targetWeaponLevel: number | null | undefined
+): number | null {
+  if (!targetWeaponLevel || targetWeaponLevel === character.weapon.enhancementLevel) {
+    return null;
+  }
+
+  return readWeaponAttackForEnhancementLevel(targetWeaponLevel);
 }
 
 function normalizeScoringMode(value: AccessoryScoringMode | undefined): AccessoryScoringMode | null {

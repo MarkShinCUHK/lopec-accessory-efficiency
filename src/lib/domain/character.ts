@@ -19,9 +19,17 @@ export interface CharacterState {
   profileAttack: number;
   imageUrl: string | null;
   accessories: Record<AccessorySlot, AccessoryState>;
+  weapon: CharacterWeaponContext;
   scoreContext: CharacterScoreContext;
   lopec: LopecSnapshot | null;
   raw: LostarkArmory;
+}
+
+export interface CharacterWeaponContext {
+  name: string | null;
+  enhancementLevel: number | null;
+  attack: number;
+  quality: number;
 }
 
 export interface CharacterScoreContext {
@@ -60,6 +68,7 @@ export function createCharacterState(armory: LostarkArmory): CharacterState {
     profileAttack: readProfileStat(profile, "공격력"),
     imageUrl: profile.CharacterImage,
     accessories,
+    weapon: createWeaponContext(armory),
     scoreContext: createScoreContext(armory),
     lopec: null,
     raw: armory
@@ -107,6 +116,24 @@ function createScoreContext(armory: LostarkArmory): CharacterScoreContext {
     arkGridAdditionalDamage: readArkGridEffectPercent(armory.ArkGrid, "추가 피해"),
     enlightenmentPoints: readArkPassivePoint(armory.ArkPassive, "깨달음")
   };
+}
+
+function createWeaponContext(armory: LostarkArmory): CharacterWeaponContext {
+  const weapon = armory.ArmoryEquipment?.find((item) => item.Type === "무기") ?? null;
+
+  return {
+    name: weapon?.Name ?? null,
+    enhancementLevel: weapon ? parseWeaponEnhancementLevel(weapon.Name) : null,
+    attack: weapon ? parseEquipmentWeaponAttack(weapon) : 0,
+    quality: weapon ? parseEquipmentQuality(weapon) : 0
+  };
+}
+
+function parseWeaponEnhancementLevel(name: string): number | null {
+  const match = name.match(/\+(\d+)/);
+  const parsed = match ? Number(match[1]) : NaN;
+
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function readProfileStat(profile: NonNullable<LostarkArmory["ArmoryProfile"]>, type: string): number {

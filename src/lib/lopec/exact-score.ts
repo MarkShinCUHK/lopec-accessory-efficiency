@@ -189,6 +189,31 @@ export function calculateExactLopecReplacementSet(
   };
 }
 
+export function createLopecWeaponAttackSimulation(
+  character: CharacterState,
+  weaponAttack: number,
+  scoringMode?: AccessoryScoringMode
+): { score: number; simulator: LopecSimulatorData } | null {
+  const simulator = character.lopec?.simulator;
+  const baseScore = character.lopec?.score;
+
+  if (!simulator || !baseScore || weaponAttack <= 0) {
+    return null;
+  }
+
+  const nextSimulator = replaceWeaponAttack(simulator, weaponAttack);
+  const mode = scoringMode ?? (simulator.profile.supportCheck ? "support" : "dealer");
+  const scoreRatio =
+    mode === "support"
+      ? calculateSupportReplacementRatio(simulator, nextSimulator)
+      : calculateDealerReplacementRatio(simulator, nextSimulator);
+
+  return {
+    score: round2(baseScore * scoreRatio),
+    simulator: nextSimulator
+  };
+}
+
 export function createExactLopecReplacementSimulator(
   character: Pick<CharacterState, "lopec">,
   replacements: ExactLopecReplacementInput[]
@@ -229,6 +254,27 @@ function replaceAccessories(
   }
 
   return next;
+}
+
+function replaceWeaponAttack(
+  simulator: LopecSimulatorData,
+  weaponAttack: number
+): LopecSimulatorData {
+  const currentWeapon = simulator.armory.equipment.weapon;
+
+  return {
+    ...simulator,
+    armory: {
+      ...simulator.armory,
+      equipment: {
+        ...simulator.armory.equipment,
+        weapon: {
+          ...(currentWeapon ?? {}),
+          stat: weaponAttack
+        }
+      }
+    }
+  };
 }
 
 function createLopecAccessory(

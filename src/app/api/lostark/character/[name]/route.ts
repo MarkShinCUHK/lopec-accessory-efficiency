@@ -29,6 +29,7 @@ export async function GET(request: Request, context: RouteContext) {
         lopecScore: character.lopec?.score ?? null,
         isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
         imageUrl: character.imageUrl,
+        weapon: character.weapon,
         accessories: character.accessories
       }
     });

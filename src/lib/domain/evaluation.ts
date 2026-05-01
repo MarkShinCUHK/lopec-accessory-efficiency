@@ -10,7 +10,8 @@ import {
 import type { CharacterState } from "@/lib/domain/character";
 import {
   calculateExactLopecReplacement,
-  calculateExactLopecReplacementSet
+  calculateExactLopecReplacementSet,
+  createLopecWeaponAttackSimulation
 } from "@/lib/lopec/exact-score";
 
 export interface EvaluationResult {
@@ -58,8 +59,10 @@ const SWAPPABLE_SLOT_GROUPS: AccessorySlot[][] = [
 export function evaluateCandidate(
   character: CharacterState,
   candidate: AccessoryCandidate,
-  scoringMode?: AccessoryScoringMode
+  scoringMode?: AccessoryScoringMode,
+  targetWeaponAttack?: number | null
 ): EvaluationResult | null {
+  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
   const buyPrice = candidate.buyPrice ?? 0;
 
   if (buyPrice <= 0) {
@@ -67,7 +70,7 @@ export function evaluateCandidate(
   }
 
   const results = getReplaceableSlots(candidate.type)
-    .map((slot) => evaluateCandidateForSlot(character, slot, candidate, scoringMode))
+    .map((slot) => evaluateCandidateForSlot(scoringCharacter, slot, candidate, scoringMode))
     .filter((result): result is EvaluationResult => Boolean(result));
 
   return results.sort((a, b) => b.deltaScore - a.deltaScore)[0] ?? null;
@@ -115,10 +118,13 @@ export function evaluateCandidateForSlot(
 export function evaluateCandidates(
   character: CharacterState,
   candidates: AccessoryCandidate[],
-  scoringMode?: AccessoryScoringMode
+  scoringMode?: AccessoryScoringMode,
+  targetWeaponAttack?: number | null
 ): EvaluationResult[] {
+  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
+
   return candidates
-    .map((candidate) => evaluateCandidate(character, candidate, scoringMode))
+    .map((candidate) => evaluateCandidate(scoringCharacter, candidate, scoringMode))
     .filter((result): result is EvaluationResult => Boolean(result))
     .sort((a, b) => {
       if (a.goldPerScore !== b.goldPerScore) {
@@ -138,9 +144,11 @@ export function evaluatePriceTargetCombinations(
   candidatesByType: Partial<Record<AccessoryType, AccessoryCandidate[]>>,
   targetSlots: AccessorySlot[],
   maxBudget: number,
-  scoringMode?: AccessoryScoringMode
+  scoringMode?: AccessoryScoringMode,
+  targetWeaponAttack?: number | null
 ): EvaluationCombinationResult[] {
-  const normalizedSlots = normalizeTargetSlots(character, targetSlots);
+  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
+  const normalizedSlots = normalizeTargetSlots(scoringCharacter, targetSlots);
 
   if (normalizedSlots.length === 0 || maxBudget <= 0) {
     return [];
@@ -153,7 +161,7 @@ export function evaluatePriceTargetCombinations(
     return {
       slot,
       candidates: candidates
-        .map((candidate) => evaluateCandidateForSlot(character, slot, candidate, scoringMode))
+        .map((candidate) => evaluateCandidateForSlot(scoringCharacter, slot, candidate, scoringMode))
         .filter(
           (result): result is EvaluationResult =>
             result !== null && result.deltaScore > 0 && result.buyPrice <= maxBudget
@@ -169,7 +177,7 @@ export function evaluatePriceTargetCombinations(
 
   const results = [...singleReplacementBeams, ...combinationBeams]
     .filter((combo) => combo.replacements.length > 0)
-    .map((combo) => buildCombinationResult(character, combo, scoringMode))
+    .map((combo) => buildCombinationResult(scoringCharacter, combo, scoringMode))
     .filter(
       (result): result is EvaluationCombinationResult =>
         result !== null && result.deltaScore > 0 && result.buyPrice <= maxBudget
@@ -218,6 +226,43 @@ interface CombinationBeam {
 interface SlotCandidateSet {
   slot: AccessorySlot;
   candidates: EvaluationResult[];
+}
+
+function createScoringCharacter(
+  character: CharacterState,
+  scoringMode?: AccessoryScoringMode,
+  targetWeaponAttack?: number | null
+): CharacterState {
+  if (
+    !targetWeaponAttack ||
+    targetWeaponAttack <= 0 ||
+    targetWeaponAttack === character.scoreContext.weaponAttack
+  ) {
+    return character;
+  }
+
+  const weaponSimulation = createLopecWeaponAttackSimulation(
+    character,
+    targetWeaponAttack,
+    scoringMode
+  );
+
+  return {
+    ...character,
+    profileAttack: character.profileAttack,
+    scoreContext: {
+      ...character.scoreContext,
+      weaponAttack: targetWeaponAttack
+    },
+    lopec:
+      weaponSimulation && character.lopec
+        ? {
+            ...character.lopec,
+            score: weaponSimulation.score,
+            simulator: weaponSimulation.simulator
+          }
+        : character.lopec
+  };
 }
 
 function buildSingleReplacementBeams(candidatesBySlot: SlotCandidateSet[]): CombinationBeam[] {

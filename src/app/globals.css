@@ -722,7 +722,7 @@ select {
 }
 
 .searchRow.priceTargetSearchRow {
-  grid-template-columns: 132px 120px minmax(160px, 1fr) 150px;
+  grid-template-columns: 132px 120px 150px minmax(160px, 1fr) 150px;
 }
 
 .gradeSearchGrid {

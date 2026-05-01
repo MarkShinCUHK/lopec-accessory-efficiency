@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { WEAPON_ENHANCEMENT_LEVELS } from "@/lib/domain/weapon";
 
 type AccessoryType = "necklace" | "earring" | "ring";
 type AccessorySlot = "necklace" | "earring1" | "earring2" | "ring1" | "ring2";
@@ -18,6 +19,7 @@ type ThemeMode = "light" | "dark";
 type ApiKeyStatus = "idle" | "checking" | "valid" | "invalid";
 type TableSortKey = "price" | "tradeCount" | "stat" | "deltaScore" | "goldPerScore" | "efficiency";
 type GuideStepId = 1 | 2 | 3 | 4;
+type TargetWeaponLevel = "current" | `${number}`;
 type EffectOption =
   | "additionalDamage"
   | "enemyDamage"
@@ -76,6 +78,12 @@ interface CharacterSummary {
   lopecScore?: number | null;
   isSupport?: boolean;
   imageUrl?: string | null;
+  weapon?: {
+    name: string | null;
+    enhancementLevel: number | null;
+    attack: number;
+    quality: number;
+  };
   accessories: Record<string, AccessorySummary>;
 }
 
@@ -419,6 +427,7 @@ export default function AccessoryEfficiencyClient() {
   const [maxPrice, setMaxPrice] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("optionTarget");
   const [scoringMode, setScoringMode] = useState<ScoringMode>("dealer");
+  const [targetWeaponLevel, setTargetWeaponLevel] = useState<TargetWeaponLevel>("current");
   const [targetSlots, setTargetSlots] = useState<AccessorySlot[]>(ACCESSORY_SLOT_ORDER);
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -758,6 +767,7 @@ export default function AccessoryEfficiencyClient() {
       setLoadedCharacter(payload.data);
       setScoringMode(payload.data.isSupport ? "support" : "dealer");
       setSelectedGrades({ ...DEFAULT_EFFECT_GRADES });
+      setTargetWeaponLevel("current");
       setTargetSlots(
         ACCESSORY_SLOT_ORDER.filter((slot) => Boolean(payload.data?.accessories[slot]))
       );
@@ -890,6 +900,10 @@ export default function AccessoryEfficiencyClient() {
               ? getExcludedEffectOptions(accessoryType, scoringMode, selectedGrades)
               : [],
           targetSlots: searchMode === "priceTarget" ? targetSlots : undefined,
+          targetWeaponLevel:
+            searchMode === "priceTarget" && targetWeaponLevel !== "current"
+              ? Number(targetWeaponLevel)
+              : undefined,
           searchMode,
           scoringMode,
           apiKey: activeApiKey || undefined
@@ -1253,6 +1267,28 @@ export default function AccessoryEfficiencyClient() {
                   onChange={(event) => setMinQuality(Number(event.target.value))}
                 />
               </label>
+
+              {searchMode === "priceTarget" ? (
+                <label>
+                  무기 강화 가정
+                  <select
+                    value={targetWeaponLevel}
+                    disabled={!loadedCharacter}
+                    onChange={(event) =>
+                      setTargetWeaponLevel(event.target.value as TargetWeaponLevel)
+                    }
+                  >
+                    <option value="current">{formatCurrentWeaponLevel(loadedCharacter)}</option>
+                    {WEAPON_ENHANCEMENT_LEVELS.filter(
+                      (level) => level !== loadedCharacter?.weapon?.enhancementLevel
+                    ).map((level) => (
+                      <option key={level} value={String(level)}>
+                        +{level}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               <label>
                 {searchMode === "priceTarget" ? "목표 가격" : "최대 가격"}
@@ -3638,6 +3674,12 @@ function formatNumberInput(value: string): string {
   return Number(normalizedValue).toLocaleString("ko-KR", {
     maximumFractionDigits: 0
   });
+}
+
+function formatCurrentWeaponLevel(character: CharacterSummary | null): string {
+  const level = character?.weapon?.enhancementLevel;
+
+  return level ? `현재 +${level}` : "현재";
 }
 
 function gradeClassName(grade: OptionGrade): string {
