@@ -3,7 +3,7 @@ import { LostarkApiError } from "@/lib/lostark/client";
 import { getCharacterState } from "@/lib/lostark/armory";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 600;
+export const maxDuration = 300;
 
 interface RouteContext {
   params: Promise<{
