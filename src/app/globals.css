@@ -73,6 +73,7 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: auto;
   height: 34px;
   padding: 0 12px;
   color: #1f6fe5;
@@ -88,6 +89,94 @@ select {
 .bugReportLink:hover {
   background: #e2f0ff;
   border-color: #87b8ff;
+}
+
+.bugReportModal {
+  display: grid;
+  gap: 14px;
+  width: min(380px, 100%);
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+}
+
+.bugReportHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e7f0;
+}
+
+.bugReportHeader p,
+.bugReportHeader h2 {
+  margin: 0;
+}
+
+.bugReportHeader p {
+  color: #667386;
+  font-size: 13px;
+}
+
+.bugReportHeader h2 {
+  margin-top: 3px;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.discordContactBox {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #dbe5f2;
+  border-radius: 8px;
+}
+
+.discordContactBox span {
+  color: #657284;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.discordContactBox strong {
+  color: #263348;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+.bugReportActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.bugReportActions button,
+.bugReportActions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.bugReportActions button {
+  color: #ffffff;
+  background: #0878ff;
+  border: 1px solid #0878ff;
+}
+
+.bugReportActions a {
+  color: #1f6fe5;
+  background: #eef6ff;
+  border: 1px solid #bcd7ff;
 }
 
 .lopecVerification {
@@ -1982,6 +2071,7 @@ button:disabled {
 [data-theme="dark"] .searchPanel,
 [data-theme="dark"] .resultsPanel,
 [data-theme="dark"] .graphModal,
+[data-theme="dark"] .bugReportModal,
 [data-theme="dark"] .apiKeyTooltip,
 [data-theme="dark"] .criteriaTooltip {
   color: #d8e0ec;
@@ -2035,6 +2125,8 @@ button:disabled {
 [data-theme="dark"] .metric span,
 [data-theme="dark"] .resultTable small,
 [data-theme="dark"] .graphModalHeader p,
+[data-theme="dark"] .bugReportHeader p,
+[data-theme="dark"] .discordContactBox span,
 [data-theme="dark"] .graphLegend,
 [data-theme="dark"] .apiKeyStatus,
 [data-theme="dark"] .emptyState p {
@@ -2063,7 +2155,8 @@ button:disabled {
 [data-theme="dark"] .characterSummary,
 [data-theme="dark"] .searchPanelHeader,
 [data-theme="dark"] .resultHeader,
-[data-theme="dark"] .graphModalHeader {
+[data-theme="dark"] .graphModalHeader,
+[data-theme="dark"] .bugReportHeader {
   border-bottom-color: #334155;
 }
 
@@ -2072,6 +2165,7 @@ button:disabled {
 [data-theme="dark"] .searchProgress,
 [data-theme="dark"] .slotTargetCard,
 [data-theme="dark"] .graphRangeControls,
+[data-theme="dark"] .discordContactBox,
 [data-theme="dark"] .metric,
 [data-theme="dark"] .combinationItem,
 [data-theme="dark"] .combinationDetailRow {

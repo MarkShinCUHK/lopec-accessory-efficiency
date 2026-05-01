@@ -452,6 +452,7 @@ export default function AccessoryEfficiencyClient() {
   const [lopecVerification, setLopecVerification] = useState<LopecVerificationStatus | null>(null);
   const [isLopecVerificationLoading, setIsLopecVerificationLoading] = useState(false);
   const [lopecVerificationError, setLopecVerificationError] = useState<string | null>(null);
+  const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const loadPanelRef = useRef<HTMLFormElement>(null);
   const searchPanelRef = useRef<HTMLFormElement>(null);
   const resultsPanelRef = useRef<HTMLElement>(null);
@@ -1060,14 +1061,13 @@ export default function AccessoryEfficiencyClient() {
           <span>내 캐릭에 맞는 악세 효율 찾기 - 경매장 매물별 로펙점수 상승 비교 및 시각화</span>
         </div>
         <div className="topNavActions">
-          <a
+          <button
+            type="button"
             className="bugReportLink"
-            href="https://discord.com/users/335770648313856001"
-            target="_blank"
-            rel="noreferrer"
+            onClick={() => setIsBugReportOpen(true)}
           >
             버그 제보
-          </a>
+          </button>
           <LopecVerificationBadge
             status={lopecVerification}
             isLoading={isLopecVerificationLoading}
@@ -1525,7 +1525,66 @@ export default function AccessoryEfficiencyClient() {
           onPointSelect={handleGraphItemSelect}
         />
       ) : null}
+      {isBugReportOpen ? <BugReportModal onClose={() => setIsBugReportOpen(false)} /> : null}
     </main>
+  );
+}
+
+function BugReportModal({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const discordUsername = "alskk199";
+  const discordProfileUrl = "https://discord.com/users/335770648313856001";
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  async function copyDiscordUsername() {
+    await navigator.clipboard.writeText(discordUsername);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1400);
+  }
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="bugReportModal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="버그 제보"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="bugReportHeader">
+          <div>
+            <p>Discord</p>
+            <h2>버그 제보</h2>
+          </div>
+          <button type="button" className="modalCloseButton" onClick={onClose} aria-label="닫기">
+            닫기
+          </button>
+        </div>
+        <div className="discordContactBox">
+          <span>디스코드 아이디</span>
+          <strong>@{discordUsername}</strong>
+        </div>
+        <div className="bugReportActions">
+          <button type="button" onClick={copyDiscordUsername}>
+            {copied ? "복사됨" : "아이디 복사"}
+          </button>
+          <a href={discordProfileUrl} target="_blank" rel="noreferrer">
+            프로필 열기
+          </a>
+        </div>
+      </section>
+    </div>
   );
 }
 
