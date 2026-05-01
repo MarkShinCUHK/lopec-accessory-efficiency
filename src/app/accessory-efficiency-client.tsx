@@ -436,6 +436,7 @@ export default function AccessoryEfficiencyClient() {
   const [resultPage, setResultPage] = useState(1);
   const [resultViewMode, setResultViewMode] = useState<ResultViewMode>("table");
   const [showPositiveOnly, setShowPositiveOnly] = useState(true);
+  const [minDeltaScoreFilter, setMinDeltaScoreFilter] = useState("");
   const [cardSortMode, setCardSortMode] = useState<CardSortMode>("goldPerScoreAsc");
   const [tradeCountFilter, setTradeCountFilter] = useState<TradeCountFilter>("0");
   const [tableSort, setTableSort] = useState<{
@@ -575,6 +576,10 @@ export default function AccessoryEfficiencyClient() {
     () => allCombinationResults.filter((result) => result.deltaScore > 0).length,
     [allCombinationResults]
   );
+  const minDeltaScoreThreshold = useMemo(
+    () => parseNullableDecimalInput(minDeltaScoreFilter),
+    [minDeltaScoreFilter]
+  );
   const displayResults = useMemo(
     () =>
       allResults.filter((result) => {
@@ -593,11 +598,15 @@ export default function AccessoryEfficiencyClient() {
           return false;
         }
 
+        if (minDeltaScoreThreshold !== null && result.deltaScore < minDeltaScoreThreshold) {
+          return false;
+        }
+
         return result.replacements.every(
           (replacement) => replacement.candidate.tradeAllowCount >= Number(tradeCountFilter)
         );
       }),
-    [allCombinationResults, showPositiveOnly, tradeCountFilter]
+    [allCombinationResults, minDeltaScoreThreshold, showPositiveOnly, tradeCountFilter]
   );
   const tradeCountFilterLabel =
     TRADE_COUNT_OPTIONS.find((option) => option.value === tradeCountFilter)?.label ?? "";
@@ -617,6 +626,7 @@ export default function AccessoryEfficiencyClient() {
   );
   const activeResultCount =
     searchMode === "priceTarget" ? sortedCombinationResults.length : sortedDisplayResults.length;
+  const isDeltaScoreFiltered = searchMode === "priceTarget" && minDeltaScoreThreshold !== null;
   const totalResultPages = Math.max(1, Math.ceil(activeResultCount / RESULT_PAGE_SIZE));
   const currentResultPage = Math.min(resultPage, totalResultPages);
   const visibleResults = useMemo(
@@ -863,7 +873,9 @@ export default function AccessoryEfficiencyClient() {
       return;
     }
 
-    setCurrentProgressId(null);
+    const progressId = createProgressId();
+
+    setCurrentProgressId(progressId);
     setSearchProgress({
       percent: 0,
       message: "경매장 검색 중 · 완료될 때까지 기다려 주세요",
@@ -901,11 +913,10 @@ export default function AccessoryEfficiencyClient() {
               : [],
           targetSlots: searchMode === "priceTarget" ? targetSlots : undefined,
           targetWeaponLevel:
-            searchMode === "priceTarget" && targetWeaponLevel !== "current"
-              ? Number(targetWeaponLevel)
-              : undefined,
+            targetWeaponLevel !== "current" ? Number(targetWeaponLevel) : undefined,
           searchMode,
           scoringMode,
+          progressId,
           apiKey: activeApiKey || undefined
         })
       });
@@ -918,15 +929,16 @@ export default function AccessoryEfficiencyClient() {
 
       setResponse(payload);
       setResultPage(1);
-      setSearchProgress({
+      setSearchProgress((current) => ({
         percent: 100,
         message: "검색 완료",
         isWaiting: false,
         isIndeterminate: false,
-        completedRequests: 1,
-        totalRequests: 1
-      });
+        completedRequests: Math.max(current.completedRequests, current.totalRequests, 1),
+        totalRequests: Math.max(current.completedRequests, current.totalRequests, 1)
+      }));
       setIsSearching(false);
+      setCurrentProgressId(null);
     } catch (error) {
       setSearchProgress((current) => ({
         ...current,
@@ -1268,27 +1280,25 @@ export default function AccessoryEfficiencyClient() {
                 />
               </label>
 
-              {searchMode === "priceTarget" ? (
-                <label>
-                  무기 강화 가정
-                  <select
-                    value={targetWeaponLevel}
-                    disabled={!loadedCharacter}
-                    onChange={(event) =>
-                      setTargetWeaponLevel(event.target.value as TargetWeaponLevel)
-                    }
-                  >
-                    <option value="current">{formatCurrentWeaponLevel(loadedCharacter)}</option>
-                    {WEAPON_ENHANCEMENT_LEVELS.filter(
-                      (level) => level !== loadedCharacter?.weapon?.enhancementLevel
-                    ).map((level) => (
-                      <option key={level} value={String(level)}>
-                        +{level}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
+              <label>
+                무기 강화 가정
+                <select
+                  value={targetWeaponLevel}
+                  disabled={!loadedCharacter}
+                  onChange={(event) =>
+                    setTargetWeaponLevel(event.target.value as TargetWeaponLevel)
+                  }
+                >
+                  <option value="current">{formatCurrentWeaponLevel(loadedCharacter)}</option>
+                  {WEAPON_ENHANCEMENT_LEVELS.filter(
+                    (level) => level !== loadedCharacter?.weapon?.enhancementLevel
+                  ).map((level) => (
+                    <option key={level} value={String(level)}>
+                      +{level}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <label>
                 {searchMode === "priceTarget" ? "목표 가격" : "최대 가격"}
@@ -1361,6 +1371,7 @@ export default function AccessoryEfficiencyClient() {
                           }개`
                         : ""} ·{" "}
                       거래 가능 {tradeCountFilterLabel} ·{" "}
+                      {isDeltaScoreFiltered ? `표시 ${activeResultCount}개 · ` : ""}
                       {currentResultPage}/{totalResultPages}페이지
                     </span>
                   </div>
@@ -1392,6 +1403,20 @@ export default function AccessoryEfficiencyClient() {
                         ))}
                       </select>
                     </label>
+                    {searchMode === "priceTarget" ? (
+                      <label className="scoreFilterControl">
+                        <span>점수 상승 최소</span>
+                        <input
+                          inputMode="decimal"
+                          placeholder="제한 없음"
+                          value={minDeltaScoreFilter}
+                          onChange={(event) => {
+                            setMinDeltaScoreFilter(normalizeDecimalInput(event.target.value));
+                            setResultPage(1);
+                          }}
+                        />
+                      </label>
+                    ) : null}
                     {resultViewMode === "card" ? (
                       <label className="cardSortControl">
                         <span>정렬</span>
@@ -1502,7 +1527,9 @@ export default function AccessoryEfficiencyClient() {
                     <div className="emptyState compact">
                       <h2>검색 결과 없음</h2>
                       <p>
-                        목표 가격 이하에서 선택 슬롯의 점수가 상승하는 조합이 없습니다.
+                        {isDeltaScoreFiltered
+                          ? "점수 상승 최소 조건을 만족하는 조합이 없습니다."
+                          : "목표 가격 이하에서 선택 슬롯의 점수가 상승하는 조합이 없습니다."}
                       </p>
                     </div>
                   )
@@ -3660,8 +3687,31 @@ function parseNullableNumberInput(value: string): number | null {
   return Number.isFinite(numberValue) ? numberValue : null;
 }
 
+function parseNullableDecimalInput(value: string): number | null {
+  const trimmedValue = normalizeDecimalInput(value);
+
+  if (!trimmedValue || trimmedValue === ".") {
+    return null;
+  }
+
+  const numberValue = Number(trimmedValue);
+
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
 function normalizeNumberInput(value: string): string {
   return value.replace(/[^\d]/g, "");
+}
+
+function normalizeDecimalInput(value: string): string {
+  const sanitizedValue = value.replace(/[^\d.]/g, "");
+  const [integerPart, ...fractionParts] = sanitizedValue.split(".");
+
+  if (fractionParts.length === 0) {
+    return integerPart;
+  }
+
+  return `${integerPart}.${fractionParts.join("").slice(0, 2)}`;
 }
 
 function formatNumberInput(value: string): string {
@@ -3674,6 +3724,14 @@ function formatNumberInput(value: string): string {
   return Number(normalizedValue).toLocaleString("ko-KR", {
     maximumFractionDigits: 0
   });
+}
+
+function createProgressId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function formatCurrentWeaponLevel(character: CharacterSummary | null): string {

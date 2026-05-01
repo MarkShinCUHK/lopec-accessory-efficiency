@@ -401,7 +401,7 @@ function createAuctionProgress(
         totalRequests: event.totalRequests,
         retryAttempt: event.retryAttempt,
         retryDelayMs: event.retryDelayMs,
-        message: `${formatAuctionProgressTarget(event.type, event.pageNo)} 제한 대기 중`
+        message: `API 대기중 · ${formatAuctionProgressTarget(event.type, event.pageNo)}`
       });
     }
   };

@@ -712,13 +712,14 @@ select {
 
 .searchRow.optionTargetSearchRow {
   grid-template-columns:
+    minmax(128px, 1fr)
     minmax(132px, 1fr)
-    minmax(160px, 1fr)
-    minmax(160px, 1fr)
-    118px
-    112px
-    160px
-    150px;
+    minmax(132px, 1fr)
+    96px
+    96px
+    142px
+    minmax(150px, 1fr)
+    146px;
 }
 
 .searchRow.priceTargetSearchRow {
@@ -1320,6 +1321,7 @@ button:disabled {
 }
 
 .cardSortControl,
+.scoreFilterControl,
 .tradeCountControl {
   display: inline-flex;
   gap: 7px;
@@ -1332,6 +1334,7 @@ button:disabled {
 }
 
 .cardSortControl select,
+.scoreFilterControl input,
 .tradeCountControl select {
   width: auto;
   min-width: 160px;
@@ -1342,6 +1345,12 @@ button:disabled {
   background: #ffffff;
   border: 1px solid #d8deea;
   border-radius: 6px;
+}
+
+.scoreFilterControl input {
+  width: 112px;
+  min-width: 112px;
+  padding: 0 10px;
 }
 
 .tradeCountControl select {
@@ -2227,6 +2236,7 @@ button:disabled {
 [data-theme="dark"] .modalCloseButton,
 [data-theme="dark"] .rangeResetButton,
 [data-theme="dark"] .cardSortControl select,
+[data-theme="dark"] .scoreFilterControl input,
 [data-theme="dark"] .tradeCountControl select {
   color: #d8e0ec;
   background: #0f1722;
