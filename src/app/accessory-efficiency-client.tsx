@@ -1318,7 +1318,7 @@ export default function AccessoryEfficiencyClient() {
                     <span>
                       검색 매물 {response.data.searchedCount}개
                       {showPositiveOnly
-                        ? ` · 상승 후보 ${
+                        ? ` · ${searchMode === "priceTarget" ? "교체 후보" : "상승 후보"} ${
                             searchMode === "priceTarget"
                               ? positiveCombinationCount
                               : positiveResultCount

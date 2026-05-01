@@ -49,7 +49,7 @@ export interface EvaluationCombinationResult {
 
 const MAX_CANDIDATES_PER_SLOT = 80;
 const MAX_COMBINATION_BEAM = 700;
-const MAX_COMBINATION_RESULTS = 120;
+const MAX_EXHAUSTIVE_COMBINATION_SLOTS = 2;
 const SWAPPABLE_SLOT_GROUPS: AccessorySlot[][] = [
   ["earring1", "earring2"],
   ["ring1", "ring2"]
@@ -146,7 +146,7 @@ export function evaluatePriceTargetCombinations(
     return [];
   }
 
-  const candidatesBySlot = normalizedSlots.map((slot) => {
+  const candidatesBySlot: SlotCandidateSet[] = normalizedSlots.map((slot) => {
     const type = slotToAccessoryType(slot);
     const candidates = candidatesByType[type] ?? [];
 
@@ -159,58 +159,16 @@ export function evaluatePriceTargetCombinations(
             result !== null && result.deltaScore > 0 && result.buyPrice <= maxBudget
         )
         .sort(compareSingleReplacementForCombination)
-        .slice(0, MAX_CANDIDATES_PER_SLOT)
     };
   });
-  let beam: CombinationBeam[] = [
-    {
-      replacements: [],
-      buyPrice: 0,
-      estimatedDeltaScore: 0,
-      usedCandidateKeys: new Set()
-    }
-  ];
+  const combinationBeams =
+    normalizedSlots.length <= MAX_EXHAUSTIVE_COMBINATION_SLOTS
+      ? buildExhaustiveCombinationBeams(candidatesBySlot, maxBudget)
+      : buildBeamCombinationBeams(candidatesBySlot, maxBudget);
+  const singleReplacementBeams = buildSingleReplacementBeams(candidatesBySlot);
 
-  for (const slotCandidates of candidatesBySlot) {
-    const nextBeam: CombinationBeam[] = [...beam];
-
-    for (const combo of beam) {
-      for (const candidateResult of slotCandidates.candidates) {
-        const candidateKey = readCandidateKey(candidateResult.candidate);
-
-        if (
-          combo.usedCandidateKeys.has(candidateKey) ||
-          combo.buyPrice + candidateResult.buyPrice > maxBudget
-        ) {
-          continue;
-        }
-
-        nextBeam.push({
-          replacements: [
-            ...combo.replacements,
-            {
-              candidate: candidateResult.candidate,
-              replacedSlot: candidateResult.replacedSlot,
-              replacedAccessory: candidateResult.replacedAccessory,
-              buyPrice: candidateResult.buyPrice,
-              deltaScore: candidateResult.deltaScore
-            }
-          ],
-          buyPrice: combo.buyPrice + candidateResult.buyPrice,
-          estimatedDeltaScore: combo.estimatedDeltaScore + candidateResult.deltaScore,
-          usedCandidateKeys: new Set([...combo.usedCandidateKeys, candidateKey])
-        });
-      }
-    }
-
-    beam = dedupeCombinationBeams(nextBeam)
-      .sort(compareCombinationBeam)
-      .slice(0, MAX_COMBINATION_BEAM);
-  }
-
-  const results = beam
+  const results = [...singleReplacementBeams, ...combinationBeams]
     .filter((combo) => combo.replacements.length > 0)
-    .slice(0, MAX_COMBINATION_BEAM)
     .map((combo) => buildCombinationResult(character, combo, scoringMode))
     .filter(
       (result): result is EvaluationCombinationResult =>
@@ -218,8 +176,7 @@ export function evaluatePriceTargetCombinations(
     );
 
   return dedupeCombinationResults(results)
-    .sort(compareCombinationResult)
-    .slice(0, MAX_COMBINATION_RESULTS);
+    .sort(compareCombinationResult);
 }
 
 export function scoreReplacementRatio(
@@ -256,6 +213,112 @@ interface CombinationBeam {
   buyPrice: number;
   estimatedDeltaScore: number;
   usedCandidateKeys: Set<string>;
+}
+
+interface SlotCandidateSet {
+  slot: AccessorySlot;
+  candidates: EvaluationResult[];
+}
+
+function buildSingleReplacementBeams(candidatesBySlot: SlotCandidateSet[]): CombinationBeam[] {
+  return candidatesBySlot.flatMap((slotCandidates) =>
+    slotCandidates.candidates.map((candidateResult) =>
+      appendCandidateToCombination(createEmptyCombinationBeam(), candidateResult)
+    )
+  );
+}
+
+function buildExhaustiveCombinationBeams(
+  candidatesBySlot: SlotCandidateSet[],
+  maxBudget: number
+): CombinationBeam[] {
+  let combinations: CombinationBeam[] = [createEmptyCombinationBeam()];
+
+  for (const slotCandidates of candidatesBySlot) {
+    combinations = expandCombinationBeams(
+      combinations,
+      readCombinationCandidates(slotCandidates),
+      maxBudget
+    );
+  }
+
+  return combinations;
+}
+
+function buildBeamCombinationBeams(
+  candidatesBySlot: SlotCandidateSet[],
+  maxBudget: number
+): CombinationBeam[] {
+  let beam: CombinationBeam[] = [createEmptyCombinationBeam()];
+
+  for (const slotCandidates of candidatesBySlot) {
+    beam = expandCombinationBeams(beam, readCombinationCandidates(slotCandidates), maxBudget)
+      .sort(compareCombinationBeam)
+      .slice(0, MAX_COMBINATION_BEAM);
+  }
+
+  return beam;
+}
+
+function expandCombinationBeams(
+  combinations: CombinationBeam[],
+  candidates: EvaluationResult[],
+  maxBudget: number
+): CombinationBeam[] {
+  const nextCombinations: CombinationBeam[] = [...combinations];
+
+  for (const combo of combinations) {
+    for (const candidateResult of candidates) {
+      const candidateKey = readCandidateKey(candidateResult.candidate);
+
+      if (
+        combo.usedCandidateKeys.has(candidateKey) ||
+        combo.buyPrice + candidateResult.buyPrice > maxBudget
+      ) {
+        continue;
+      }
+
+      nextCombinations.push(appendCandidateToCombination(combo, candidateResult));
+    }
+  }
+
+  return dedupeCombinationBeams(nextCombinations);
+}
+
+function readCombinationCandidates(slotCandidates: SlotCandidateSet): EvaluationResult[] {
+  return slotCandidates.candidates.slice(0, MAX_CANDIDATES_PER_SLOT);
+}
+
+function createEmptyCombinationBeam(): CombinationBeam {
+  return {
+    replacements: [],
+    buyPrice: 0,
+    estimatedDeltaScore: 0,
+    usedCandidateKeys: new Set()
+  };
+}
+
+function appendCandidateToCombination(
+  combo: CombinationBeam,
+  candidateResult: EvaluationResult
+): CombinationBeam {
+  const candidateKey = readCandidateKey(candidateResult.candidate);
+
+  return {
+    replacements: [
+      ...combo.replacements,
+      {
+        candidate: candidateResult.candidate,
+        replacedSlot: candidateResult.replacedSlot,
+        replacedAccessory: candidateResult.replacedAccessory,
+        buyPrice: candidateResult.buyPrice,
+        deltaScore: candidateResult.deltaScore
+      }
+    ],
+    buyPrice: combo.buyPrice + candidateResult.buyPrice,
+    estimatedDeltaScore: combo.estimatedDeltaScore + candidateResult.deltaScore,
+    usedCandidateKeys: new Set([...combo.usedCandidateKeys, candidateKey])
+  };
 }
 
 function buildCombinationResult(
