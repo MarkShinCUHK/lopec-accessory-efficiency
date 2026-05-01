@@ -1060,6 +1060,14 @@ export default function AccessoryEfficiencyClient() {
           <span>내 캐릭에 맞는 악세 효율 찾기 - 경매장 매물별 로펙점수 상승 비교 및 시각화</span>
         </div>
         <div className="topNavActions">
+          <a
+            className="bugReportLink"
+            href="https://discord.com/users/335770648313856001"
+            target="_blank"
+            rel="noreferrer"
+          >
+            버그 제보
+          </a>
           <LopecVerificationBadge
             status={lopecVerification}
             isLoading={isLopecVerificationLoading}
