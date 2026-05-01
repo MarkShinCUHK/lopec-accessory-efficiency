@@ -1,0 +1,48 @@
+{
+  "source": "https://lopec.kr",
+  "updatedAt": "2026-05-01T12:28:57.428Z",
+  "modules": [
+    {
+      "key": "dealer-score-wrapper",
+      "description": "딜러 최종 점수 래퍼",
+      "moduleId": "32142",
+      "sha256": "d979cebf369917464b6a431d5344ef63cc12f0dff5a200fc9729260da258401f",
+      "length": 510
+    },
+    {
+      "key": "dealer-score-input",
+      "description": "딜러 점수 입력값 생성",
+      "moduleId": "70015",
+      "sha256": "fff23c4af7d5e92604e836ad9e0f826b96367cf21d6b1aca2a71b50f277e90cc",
+      "length": 4842
+    },
+    {
+      "key": "dealer-attack",
+      "description": "딜러 공격력 계산",
+      "moduleId": "65224",
+      "sha256": "a0397b256dd10c3b03de725510f0849558bbd8694d79e555c00e5ccca08a0816",
+      "length": 3061
+    },
+    {
+      "key": "support-score-input",
+      "description": "서포터 점수 입력값 생성",
+      "moduleId": "21818",
+      "sha256": "5b9958dfa226602bb9521f8c2d9419d59809d405adc5542623802abc94473e60",
+      "length": 11201
+    },
+    {
+      "key": "support-score",
+      "description": "서포터 최종 점수 계산",
+      "moduleId": "38564",
+      "sha256": "43c3d8bf54ef7cc675e88cd7adb1f4c16d5473dd5a514d5aec0ce0c3344a859e",
+      "length": 1576
+    },
+    {
+      "key": "formula-constants",
+      "description": "악세/각인/아크그리드 상수 테이블",
+      "moduleId": "67781",
+      "sha256": "74d75c1292e34528182b39ac11431f08c42b2b22ed78dd542ac2a5f25bda38e2",
+      "length": 164087
+    }
+  ]
+}
