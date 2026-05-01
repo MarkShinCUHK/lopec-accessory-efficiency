@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type AccessoryType = "necklace" | "earring" | "ring";
@@ -453,6 +454,7 @@ export default function AccessoryEfficiencyClient() {
   const [isLopecVerificationLoading, setIsLopecVerificationLoading] = useState(false);
   const [lopecVerificationError, setLopecVerificationError] = useState<string | null>(null);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
+  const [isUsageGuideOpen, setIsUsageGuideOpen] = useState(false);
   const loadPanelRef = useRef<HTMLFormElement>(null);
   const searchPanelRef = useRef<HTMLFormElement>(null);
   const resultsPanelRef = useRef<HTMLElement>(null);
@@ -1068,6 +1070,13 @@ export default function AccessoryEfficiencyClient() {
           >
             버그 제보
           </button>
+          <button
+            type="button"
+            className="bugReportLink"
+            onClick={() => setIsUsageGuideOpen(true)}
+          >
+            사용법
+          </button>
           <LopecVerificationBadge
             status={lopecVerification}
             isLoading={isLopecVerificationLoading}
@@ -1526,7 +1535,77 @@ export default function AccessoryEfficiencyClient() {
         />
       ) : null}
       {isBugReportOpen ? <BugReportModal onClose={() => setIsBugReportOpen(false)} /> : null}
+      {isUsageGuideOpen ? <UsageGuideModal onClose={() => setIsUsageGuideOpen(false)} /> : null}
     </main>
+  );
+}
+
+function UsageGuideModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="modalBackdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="usageGuideModal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="사용법"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="usageGuideHeader">
+          <div>
+            <p>그래프</p>
+            <h2>효율 그래프 보는 법</h2>
+          </div>
+          <button type="button" className="modalCloseButton" onClick={onClose} aria-label="닫기">
+            닫기
+          </button>
+        </div>
+
+        <figure className="usageGuideImage">
+          <Image
+            src="/usage-graph-guide-plot.png"
+            alt="가격 타겟 검색 결과를 그래프로 효율 확인하기 모달에서 본 예시"
+            width={940}
+            height={630}
+            sizes="(max-width: 900px) calc(100vw - 56px), 820px"
+          />
+        </figure>
+
+        <ul className="usageGuideList">
+          <li>
+            <strong>가격 / 점수</strong>
+            총 가격 대비 로펙점수 상승량을 봅니다. 같은 가격이면 더 위에 있는 점이 더 좋습니다.
+          </li>
+          <li>
+            <strong>효율 / 점수</strong>
+            1점당 골드 대비 점수 상승량을 봅니다. 왼쪽 위에 가까울수록 싸게 많이 오르는 후보입니다.
+          </li>
+          <li>
+            <strong>색상</strong>
+            빨강은 거래 가능 0회, 주황은 1회, 초록은 2회입니다. 여러 악세 조합은 가장 낮은 거래 가능 횟수를 기준으로 표시됩니다.
+          </li>
+          <li>
+            <strong>점 클릭</strong>
+            점을 누르면 현재 보고 있던 표 또는 카드의 해당 결과로 이동하고 테두리가 강조됩니다.
+          </li>
+          <li>
+            <strong>범위 입력</strong>
+            x축과 y축 최소·최대값을 좁히면 원하는 가격대나 점수대만 확대해서 비교할 수 있습니다.
+          </li>
+        </ul>
+      </section>
+    </div>
   );
 }
 

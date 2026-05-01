@@ -102,6 +102,19 @@ select {
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
 }
 
+.usageGuideModal {
+  display: grid;
+  gap: 14px;
+  width: min(860px, 100%);
+  max-height: calc(100vh - 44px);
+  padding: 18px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+}
+
 .bugReportHeader {
   display: flex;
   justify-content: space-between;
@@ -111,20 +124,72 @@ select {
   border-bottom: 1px solid #e2e7f0;
 }
 
+.usageGuideHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e2e7f0;
+}
+
 .bugReportHeader p,
-.bugReportHeader h2 {
+.bugReportHeader h2,
+.usageGuideHeader p,
+.usageGuideHeader h2 {
   margin: 0;
 }
 
-.bugReportHeader p {
+.bugReportHeader p,
+.usageGuideHeader p {
   color: #667386;
   font-size: 13px;
 }
 
-.bugReportHeader h2 {
+.bugReportHeader h2,
+.usageGuideHeader h2 {
   margin-top: 3px;
   font-size: 22px;
   line-height: 1.25;
+}
+
+.usageGuideImage {
+  margin: 0;
+  overflow: hidden;
+  background: #101826;
+  border: 1px solid #d8e2ef;
+  border-radius: 8px;
+}
+
+.usageGuideImage img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.usageGuideList {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.usageGuideList li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  color: #374151;
+  font-size: 14px;
+  line-height: 1.5;
+  background: #f8fafc;
+  border: 1px solid #dbe5f2;
+  border-radius: 8px;
+}
+
+.usageGuideList strong {
+  color: #1f2f46;
+  font-size: 13px;
 }
 
 .discordContactBox {
@@ -2072,6 +2137,7 @@ button:disabled {
 [data-theme="dark"] .resultsPanel,
 [data-theme="dark"] .graphModal,
 [data-theme="dark"] .bugReportModal,
+[data-theme="dark"] .usageGuideModal,
 [data-theme="dark"] .apiKeyTooltip,
 [data-theme="dark"] .criteriaTooltip {
   color: #d8e0ec;
@@ -2126,6 +2192,7 @@ button:disabled {
 [data-theme="dark"] .resultTable small,
 [data-theme="dark"] .graphModalHeader p,
 [data-theme="dark"] .bugReportHeader p,
+[data-theme="dark"] .usageGuideHeader p,
 [data-theme="dark"] .discordContactBox span,
 [data-theme="dark"] .graphLegend,
 [data-theme="dark"] .apiKeyStatus,
@@ -2156,7 +2223,8 @@ button:disabled {
 [data-theme="dark"] .searchPanelHeader,
 [data-theme="dark"] .resultHeader,
 [data-theme="dark"] .graphModalHeader,
-[data-theme="dark"] .bugReportHeader {
+[data-theme="dark"] .bugReportHeader,
+[data-theme="dark"] .usageGuideHeader {
   border-bottom-color: #334155;
 }
 
@@ -2166,6 +2234,8 @@ button:disabled {
 [data-theme="dark"] .slotTargetCard,
 [data-theme="dark"] .graphRangeControls,
 [data-theme="dark"] .discordContactBox,
+[data-theme="dark"] .usageGuideImage,
+[data-theme="dark"] .usageGuideList li,
 [data-theme="dark"] .metric,
 [data-theme="dark"] .combinationItem,
 [data-theme="dark"] .combinationDetailRow {
@@ -2181,6 +2251,10 @@ button:disabled {
 }
 
 [data-theme="dark"] .guideStep strong {
+  color: #d8e0ec;
+}
+
+[data-theme="dark"] .usageGuideList strong {
   color: #d8e0ec;
 }
 
@@ -2444,7 +2518,8 @@ button:disabled {
     padding: 10px;
   }
 
-  .graphModalHeader {
+  .graphModalHeader,
+  .usageGuideHeader {
     display: grid;
   }
 
