@@ -1330,7 +1330,7 @@ export default function AccessoryEfficiencyClient() {
                     setTargetArmorLevel(event.target.value as TargetArmorLevel)
                   }
                 >
-                  <option value="current">{formatCurrentArmorLevel(loadedCharacter)}</option>
+                  <option value="current">현재 상태 그대로</option>
                   {readSelectableArmorLevels(loadedCharacter).map((level) => (
                     <option key={level} value={String(level)}>
                       올 +{level}
@@ -3777,21 +3777,6 @@ function formatCurrentWeaponLevel(character: CharacterSummary | null): string {
   const level = character?.weapon?.enhancementLevel;
 
   return level ? `현재 +${level}` : "현재";
-}
-
-function formatCurrentArmorLevel(character: CharacterSummary | null): string {
-  const levels = readArmorEnhancementLevels(character);
-
-  if (levels.length === 0) {
-    return "현재 상태 그대로";
-  }
-
-  const minLevel = Math.min(...levels);
-  const maxLevel = Math.max(...levels);
-
-  return minLevel === maxLevel
-    ? `현재 상태 그대로 (올 +${minLevel})`
-    : `현재 상태 그대로 (+${minLevel}~+${maxLevel})`;
 }
 
 function readSelectableArmorLevels(character: CharacterSummary | null): number[] {
