@@ -10,6 +10,7 @@ import {
 } from "@/lib/lostark/auction";
 import { getCharacterState } from "@/lib/lostark/armory";
 import { LostarkApiError } from "@/lib/lostark/client";
+import { readArmorMainStatsForEnhancementLevel } from "@/lib/domain/armor";
 import { readWeaponAttackForEnhancementLevel } from "@/lib/domain/weapon";
 import type {
   AccessoryScoringMode,
@@ -53,6 +54,7 @@ interface EvaluateRequestBody {
   scoringMode?: AccessoryScoringMode;
   targetSlots?: AccessorySlot[];
   targetWeaponLevel?: number | null;
+  targetArmorLevel?: number | null;
   progressId?: string;
   apiKey?: string;
 }
@@ -159,6 +161,7 @@ async function evaluateRequest(
   const scoringMode =
     requestedScoringMode ?? (character.lopec?.simulator?.profile.supportCheck ? "support" : "dealer");
   const targetWeaponAttack = readTargetWeaponAttack(character, body.targetWeaponLevel);
+  const targetArmorMainStats = readTargetArmorMainStats(character, body.targetArmorLevel);
 
   updateSearchProgress(progressId, {
     message:
@@ -211,7 +214,8 @@ async function evaluateRequest(
       targetSlots,
       maxPrice ?? 0,
       scoringMode,
-      targetWeaponAttack
+      targetWeaponAttack,
+      targetArmorMainStats
     );
 
     return {
@@ -255,7 +259,13 @@ async function evaluateRequest(
     totalRequests: Math.max(searchProgress.totalRequests, searchProgress.completedRequests + 1)
   });
 
-  const results = evaluateCandidates(character, candidates, scoringMode, targetWeaponAttack);
+  const results = evaluateCandidates(
+    character,
+    candidates,
+    scoringMode,
+    targetWeaponAttack,
+    targetArmorMainStats
+  );
 
   return {
     ok: true,
@@ -293,6 +303,7 @@ function buildCharacterSummary(character: Awaited<ReturnType<typeof getCharacter
     isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
     imageUrl: character.imageUrl,
     weapon: character.weapon,
+    armor: character.armor,
     accessories: character.accessories
   };
 }
@@ -306,6 +317,30 @@ function readTargetWeaponAttack(
   }
 
   return readWeaponAttackForEnhancementLevel(targetWeaponLevel);
+}
+
+function readTargetArmorMainStats(
+  character: Awaited<ReturnType<typeof getCharacterState>>,
+  targetArmorLevel: number | null | undefined
+) {
+  if (!targetArmorLevel) {
+    return null;
+  }
+
+  const targetStats = readArmorMainStatsForEnhancementLevel(targetArmorLevel);
+
+  if (!targetStats) {
+    return null;
+  }
+
+  const armorPieces = Object.values(character.armor.pieces).filter(
+    (piece): piece is NonNullable<typeof piece> => Boolean(piece)
+  );
+  const isAlreadyAllTarget =
+    armorPieces.length > 0 &&
+    armorPieces.every((piece) => piece.enhancementLevel === targetArmorLevel);
+
+  return isAlreadyAllTarget ? null : targetStats;
 }
 
 function normalizeScoringMode(value: AccessoryScoringMode | undefined): AccessoryScoringMode | null {

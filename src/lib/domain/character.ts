@@ -6,6 +6,7 @@ import {
   type AccessorySlot,
   type AccessoryState
 } from "@/lib/domain/accessory";
+import { ARMOR_SLOTS, type ArmorSlot } from "@/lib/domain/armor";
 import type { LopecSnapshot } from "@/lib/lopec/snapshot";
 import type { LostarkArmory } from "@/lib/lostark/types";
 
@@ -20,6 +21,7 @@ export interface CharacterState {
   imageUrl: string | null;
   accessories: Record<AccessorySlot, AccessoryState>;
   weapon: CharacterWeaponContext;
+  armor: CharacterArmorContext;
   scoreContext: CharacterScoreContext;
   lopec: LopecSnapshot | null;
   raw: LostarkArmory;
@@ -30,6 +32,20 @@ export interface CharacterWeaponContext {
   enhancementLevel: number | null;
   attack: number;
   quality: number;
+}
+
+export interface CharacterArmorPieceContext {
+  name: string | null;
+  grade: string | null;
+  enhancementLevel: number | null;
+  mainStat: number;
+  quality: number;
+}
+
+export interface CharacterArmorContext {
+  pieces: Record<ArmorSlot, CharacterArmorPieceContext | null>;
+  lowestEnhancementLevel: number | null;
+  mainStat: number;
 }
 
 export interface CharacterScoreContext {
@@ -57,6 +73,7 @@ export function createCharacterState(armory: LostarkArmory): CharacterState {
   }
 
   const accessories = parseAccessories(armory);
+  const armor = createArmorContext(armory);
 
   return {
     characterName: profile.CharacterName,
@@ -69,7 +86,8 @@ export function createCharacterState(armory: LostarkArmory): CharacterState {
     imageUrl: profile.CharacterImage,
     accessories,
     weapon: createWeaponContext(armory),
-    scoreContext: createScoreContext(armory),
+    armor,
+    scoreContext: createScoreContext(armory, armor),
     lopec: null,
     raw: armory
   };
@@ -101,15 +119,15 @@ function parseNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function createScoreContext(armory: LostarkArmory): CharacterScoreContext {
+function createScoreContext(
+  armory: LostarkArmory,
+  armor: CharacterArmorContext
+): CharacterScoreContext {
   const equipment = armory.ArmoryEquipment ?? [];
   const weapon = equipment.find((item) => item.Type === "무기") ?? null;
-  const armorMainStat = equipment
-    .filter((item) => ["투구", "상의", "하의", "장갑", "어깨"].includes(item.Type))
-    .reduce((sum, item) => sum + parseEquipmentMainStat(item), 0);
 
   return {
-    armorMainStat,
+    armorMainStat: armor.mainStat,
     weaponAttack: weapon ? parseEquipmentWeaponAttack(weapon) : 0,
     weaponQuality: weapon ? parseEquipmentQuality(weapon) : 0,
     arkGridAttackPercent: readArkGridEffectPercent(armory.ArkGrid, "공격력"),
@@ -118,18 +136,70 @@ function createScoreContext(armory: LostarkArmory): CharacterScoreContext {
   };
 }
 
+const ARMOR_TYPE_TO_SLOT: Record<string, ArmorSlot> = {
+  투구: "helmet",
+  상의: "armor",
+  하의: "pants",
+  장갑: "gloves",
+  어깨: "shoulder"
+};
+
+function createArmorContext(armory: LostarkArmory): CharacterArmorContext {
+  const equipment = armory.ArmoryEquipment ?? [];
+  const entries: Array<[ArmorSlot, CharacterArmorPieceContext]> = [];
+
+  for (const item of equipment) {
+    const slot = ARMOR_TYPE_TO_SLOT[item.Type];
+
+    if (!slot) {
+      continue;
+    }
+
+    entries.push([
+      slot,
+      {
+        name: item.Name,
+        grade: item.Grade,
+        enhancementLevel: parseEnhancementLevel(item.Name),
+        mainStat: parseEquipmentMainStat(item),
+        quality: parseEquipmentQuality(item)
+      }
+    ]);
+  }
+
+  const pieces = Object.fromEntries(entries) as Record<
+    ArmorSlot,
+    CharacterArmorPieceContext | null
+  >;
+
+  for (const slot of ARMOR_SLOTS) {
+    pieces[slot] ??= null;
+  }
+
+  const enhancementLevels = Object.values(pieces)
+    .map((piece) => piece?.enhancementLevel ?? null)
+    .filter((level): level is number => typeof level === "number");
+
+  return {
+    pieces,
+    lowestEnhancementLevel:
+      enhancementLevels.length > 0 ? Math.min(...enhancementLevels) : null,
+    mainStat: Object.values(pieces).reduce((sum, piece) => sum + (piece?.mainStat ?? 0), 0)
+  };
+}
+
 function createWeaponContext(armory: LostarkArmory): CharacterWeaponContext {
   const weapon = armory.ArmoryEquipment?.find((item) => item.Type === "무기") ?? null;
 
   return {
     name: weapon?.Name ?? null,
-    enhancementLevel: weapon ? parseWeaponEnhancementLevel(weapon.Name) : null,
+    enhancementLevel: weapon ? parseEnhancementLevel(weapon.Name) : null,
     attack: weapon ? parseEquipmentWeaponAttack(weapon) : 0,
     quality: weapon ? parseEquipmentQuality(weapon) : 0
   };
 }
 
-function parseWeaponEnhancementLevel(name: string): number | null {
+function parseEnhancementLevel(name: string): number | null {
   const match = name.match(/\+(\d+)/);
   const parsed = match ? Number(match[1]) : NaN;
 

@@ -2,10 +2,12 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ARMOR_ENHANCEMENT_LEVELS } from "@/lib/domain/armor";
 import { WEAPON_ENHANCEMENT_LEVELS } from "@/lib/domain/weapon";
 
 type AccessoryType = "necklace" | "earring" | "ring";
 type AccessorySlot = "necklace" | "earring1" | "earring2" | "ring1" | "ring2";
+type ArmorSlot = "helmet" | "armor" | "pants" | "gloves" | "shoulder";
 type OptionGrade = "상" | "중" | "하";
 type SearchOptionGrade = "선택" | OptionGrade;
 type ResultViewMode = "card" | "table";
@@ -20,6 +22,7 @@ type ApiKeyStatus = "idle" | "checking" | "valid" | "invalid";
 type TableSortKey = "price" | "tradeCount" | "stat" | "deltaScore" | "goldPerScore" | "efficiency";
 type GuideStepId = 1 | 2 | 3 | 4;
 type TargetWeaponLevel = "current" | `${number}`;
+type TargetArmorLevel = "current" | `${number}`;
 type EffectOption =
   | "additionalDamage"
   | "enemyDamage"
@@ -83,6 +86,20 @@ interface CharacterSummary {
     enhancementLevel: number | null;
     attack: number;
     quality: number;
+  };
+  armor?: {
+    pieces: Record<
+      ArmorSlot,
+      {
+        name: string | null;
+        grade: string | null;
+        enhancementLevel: number | null;
+        mainStat: number;
+        quality: number;
+      } | null
+    >;
+    lowestEnhancementLevel: number | null;
+    mainStat: number;
   };
   accessories: Record<string, AccessorySummary>;
 }
@@ -428,6 +445,7 @@ export default function AccessoryEfficiencyClient() {
   const [searchMode, setSearchMode] = useState<SearchMode>("optionTarget");
   const [scoringMode, setScoringMode] = useState<ScoringMode>("dealer");
   const [targetWeaponLevel, setTargetWeaponLevel] = useState<TargetWeaponLevel>("current");
+  const [targetArmorLevel, setTargetArmorLevel] = useState<TargetArmorLevel>("current");
   const [targetSlots, setTargetSlots] = useState<AccessorySlot[]>(ACCESSORY_SLOT_ORDER);
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -778,6 +796,7 @@ export default function AccessoryEfficiencyClient() {
       setScoringMode(payload.data.isSupport ? "support" : "dealer");
       setSelectedGrades({ ...DEFAULT_EFFECT_GRADES });
       setTargetWeaponLevel("current");
+      setTargetArmorLevel("current");
       setTargetSlots(
         ACCESSORY_SLOT_ORDER.filter((slot) => Boolean(payload.data?.accessories[slot]))
       );
@@ -914,6 +933,8 @@ export default function AccessoryEfficiencyClient() {
           targetSlots: searchMode === "priceTarget" ? targetSlots : undefined,
           targetWeaponLevel:
             targetWeaponLevel !== "current" ? Number(targetWeaponLevel) : undefined,
+          targetArmorLevel:
+            targetArmorLevel !== "current" ? Number(targetArmorLevel) : undefined,
           searchMode,
           scoringMode,
           progressId,
@@ -1295,6 +1316,24 @@ export default function AccessoryEfficiencyClient() {
                   ).map((level) => (
                     <option key={level} value={String(level)}>
                       +{level}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                방어구 일괄 강화 가정
+                <select
+                  value={targetArmorLevel}
+                  disabled={!loadedCharacter}
+                  onChange={(event) =>
+                    setTargetArmorLevel(event.target.value as TargetArmorLevel)
+                  }
+                >
+                  <option value="current">{formatCurrentArmorLevel(loadedCharacter)}</option>
+                  {readSelectableArmorLevels(loadedCharacter).map((level) => (
+                    <option key={level} value={String(level)}>
+                      올 +{level}
                     </option>
                   ))}
                 </select>
@@ -3738,6 +3777,41 @@ function formatCurrentWeaponLevel(character: CharacterSummary | null): string {
   const level = character?.weapon?.enhancementLevel;
 
   return level ? `현재 +${level}` : "현재";
+}
+
+function formatCurrentArmorLevel(character: CharacterSummary | null): string {
+  const levels = readArmorEnhancementLevels(character);
+
+  if (levels.length === 0) {
+    return "현재 상태 그대로";
+  }
+
+  const minLevel = Math.min(...levels);
+  const maxLevel = Math.max(...levels);
+
+  return minLevel === maxLevel
+    ? `현재 상태 그대로 (올 +${minLevel})`
+    : `현재 상태 그대로 (+${minLevel}~+${maxLevel})`;
+}
+
+function readSelectableArmorLevels(character: CharacterSummary | null): number[] {
+  const lowestLevel = character?.armor?.lowestEnhancementLevel;
+
+  if (!lowestLevel) {
+    return [...ARMOR_ENHANCEMENT_LEVELS];
+  }
+
+  return ARMOR_ENHANCEMENT_LEVELS.filter((level) => level >= lowestLevel);
+}
+
+function readArmorEnhancementLevels(character: CharacterSummary | null): number[] {
+  if (!character?.armor?.pieces) {
+    return [];
+  }
+
+  return Object.values(character.armor.pieces)
+    .map((piece) => piece?.enhancementLevel ?? null)
+    .filter((level): level is number => typeof level === "number");
 }
 
 function gradeClassName(grade: OptionGrade): string {

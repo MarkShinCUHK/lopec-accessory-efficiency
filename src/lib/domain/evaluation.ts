@@ -7,11 +7,12 @@ import {
   type AccessoryType,
   type AccessoryState
 } from "@/lib/domain/accessory";
+import { sumArmorMainStats, type ArmorMainStats } from "@/lib/domain/armor";
 import type { CharacterState } from "@/lib/domain/character";
 import {
   calculateExactLopecReplacement,
   calculateExactLopecReplacementSet,
-  createLopecWeaponAttackSimulation
+  createLopecEquipmentSimulation
 } from "@/lib/lopec/exact-score";
 
 export interface EvaluationResult {
@@ -60,9 +61,15 @@ export function evaluateCandidate(
   character: CharacterState,
   candidate: AccessoryCandidate,
   scoringMode?: AccessoryScoringMode,
-  targetWeaponAttack?: number | null
+  targetWeaponAttack?: number | null,
+  targetArmorMainStats?: ArmorMainStats | null
 ): EvaluationResult | null {
-  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
+  const scoringCharacter = createScoringCharacter(
+    character,
+    scoringMode,
+    targetWeaponAttack,
+    targetArmorMainStats
+  );
   const buyPrice = candidate.buyPrice ?? 0;
 
   if (buyPrice <= 0) {
@@ -119,9 +126,15 @@ export function evaluateCandidates(
   character: CharacterState,
   candidates: AccessoryCandidate[],
   scoringMode?: AccessoryScoringMode,
-  targetWeaponAttack?: number | null
+  targetWeaponAttack?: number | null,
+  targetArmorMainStats?: ArmorMainStats | null
 ): EvaluationResult[] {
-  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
+  const scoringCharacter = createScoringCharacter(
+    character,
+    scoringMode,
+    targetWeaponAttack,
+    targetArmorMainStats
+  );
 
   return candidates
     .map((candidate) => evaluateCandidate(scoringCharacter, candidate, scoringMode))
@@ -145,9 +158,15 @@ export function evaluatePriceTargetCombinations(
   targetSlots: AccessorySlot[],
   maxBudget: number,
   scoringMode?: AccessoryScoringMode,
-  targetWeaponAttack?: number | null
+  targetWeaponAttack?: number | null,
+  targetArmorMainStats?: ArmorMainStats | null
 ): EvaluationCombinationResult[] {
-  const scoringCharacter = createScoringCharacter(character, scoringMode, targetWeaponAttack);
+  const scoringCharacter = createScoringCharacter(
+    character,
+    scoringMode,
+    targetWeaponAttack,
+    targetArmorMainStats
+  );
   const normalizedSlots = normalizeTargetSlots(scoringCharacter, targetSlots);
 
   if (normalizedSlots.length === 0 || maxBudget <= 0) {
@@ -231,19 +250,31 @@ interface SlotCandidateSet {
 function createScoringCharacter(
   character: CharacterState,
   scoringMode?: AccessoryScoringMode,
-  targetWeaponAttack?: number | null
+  targetWeaponAttack?: number | null,
+  targetArmorMainStats?: ArmorMainStats | null
 ): CharacterState {
-  if (
-    !targetWeaponAttack ||
-    targetWeaponAttack <= 0 ||
-    targetWeaponAttack === character.scoreContext.weaponAttack
-  ) {
+  const nextWeaponAttack =
+    targetWeaponAttack && targetWeaponAttack > 0 ? targetWeaponAttack : null;
+  const nextArmorMainStat = targetArmorMainStats
+    ? sumArmorMainStats(targetArmorMainStats)
+    : null;
+  const hasWeaponChange =
+    nextWeaponAttack !== null && nextWeaponAttack !== character.scoreContext.weaponAttack;
+  const hasArmorChange =
+    nextArmorMainStat !== null &&
+    nextArmorMainStat > 0 &&
+    nextArmorMainStat !== character.scoreContext.armorMainStat;
+
+  if (!hasWeaponChange && !hasArmorChange) {
     return character;
   }
 
-  const weaponSimulation = createLopecWeaponAttackSimulation(
+  const equipmentSimulation = createLopecEquipmentSimulation(
     character,
-    targetWeaponAttack,
+    {
+      weaponAttack: hasWeaponChange ? nextWeaponAttack : null,
+      armorMainStats: hasArmorChange ? targetArmorMainStats : null
+    },
     scoringMode
   );
 
@@ -252,14 +283,21 @@ function createScoringCharacter(
     profileAttack: character.profileAttack,
     scoreContext: {
       ...character.scoreContext,
-      weaponAttack: targetWeaponAttack
+      weaponAttack:
+        hasWeaponChange && nextWeaponAttack
+          ? nextWeaponAttack
+          : character.scoreContext.weaponAttack,
+      armorMainStat:
+        hasArmorChange && nextArmorMainStat
+          ? nextArmorMainStat
+          : character.scoreContext.armorMainStat
     },
     lopec:
-      weaponSimulation && character.lopec
+      equipmentSimulation && character.lopec
         ? {
             ...character.lopec,
-            score: weaponSimulation.score,
-            simulator: weaponSimulation.simulator
+            score: equipmentSimulation.score,
+            simulator: equipmentSimulation.simulator
           }
         : character.lopec
   };

@@ -4,6 +4,7 @@ import {
   type AccessorySlot,
   type AccessoryState
 } from "@/lib/domain/accessory";
+import { ARMOR_SLOTS, type ArmorMainStats } from "@/lib/domain/armor";
 import type { CharacterState } from "@/lib/domain/character";
 import type {
   LopecSimulatorAccessory,
@@ -194,14 +195,25 @@ export function createLopecWeaponAttackSimulation(
   weaponAttack: number,
   scoringMode?: AccessoryScoringMode
 ): { score: number; simulator: LopecSimulatorData } | null {
+  return createLopecEquipmentSimulation(character, { weaponAttack }, scoringMode);
+}
+
+export function createLopecEquipmentSimulation(
+  character: CharacterState,
+  target: {
+    weaponAttack?: number | null;
+    armorMainStats?: ArmorMainStats | null;
+  },
+  scoringMode?: AccessoryScoringMode
+): { score: number; simulator: LopecSimulatorData } | null {
   const simulator = character.lopec?.simulator;
   const baseScore = character.lopec?.score;
 
-  if (!simulator || !baseScore || weaponAttack <= 0) {
+  if (!simulator || !baseScore) {
     return null;
   }
 
-  const nextSimulator = replaceWeaponAttack(simulator, weaponAttack);
+  const nextSimulator = replaceEquipmentStats(simulator, target);
   const mode = scoringMode ?? (simulator.profile.supportCheck ? "support" : "dealer");
   const scoreRatio =
     mode === "support"
@@ -256,23 +268,42 @@ function replaceAccessories(
   return next;
 }
 
-function replaceWeaponAttack(
+function replaceEquipmentStats(
   simulator: LopecSimulatorData,
-  weaponAttack: number
+  target: {
+    weaponAttack?: number | null;
+    armorMainStats?: ArmorMainStats | null;
+  }
 ): LopecSimulatorData {
-  const currentWeapon = simulator.armory.equipment.weapon;
+  const nextEquipment = {
+    ...simulator.armory.equipment
+  };
+
+  if (target.weaponAttack && target.weaponAttack > 0) {
+    const currentWeapon = simulator.armory.equipment.weapon;
+
+    nextEquipment.weapon = {
+      ...(currentWeapon ?? {}),
+      stat: target.weaponAttack
+    };
+  }
+
+  if (target.armorMainStats) {
+    for (const slot of ARMOR_SLOTS) {
+      const currentArmor = simulator.armory.equipment[slot];
+
+      nextEquipment[slot] = {
+        ...(currentArmor ?? {}),
+        stat: target.armorMainStats[slot]
+      };
+    }
+  }
 
   return {
     ...simulator,
     armory: {
       ...simulator.armory,
-      equipment: {
-        ...simulator.armory.equipment,
-        weapon: {
-          ...(currentWeapon ?? {}),
-          stat: weaponAttack
-        }
-      }
+      equipment: nextEquipment
     }
   };
 }

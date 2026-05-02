@@ -30,6 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
         isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
         imageUrl: character.imageUrl,
         weapon: character.weapon,
+        armor: character.armor,
         accessories: character.accessories
       }
     });
