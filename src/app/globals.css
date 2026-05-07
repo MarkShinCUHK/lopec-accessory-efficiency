@@ -764,6 +764,95 @@ select {
   border-radius: 6px;
 }
 
+.equipmentPreview {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+}
+
+.equipmentPreview.ready {
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: center;
+  background: #f3fbf7;
+  border-color: #a9dec0;
+}
+
+.equipmentPreview.loading {
+  background: #eef6ff;
+  border-color: #bcd7ff;
+}
+
+.equipmentPreview.error {
+  background: #fff1f0;
+  border-color: #e7aaa4;
+}
+
+.equipmentPreviewCopy,
+.equipmentPreview.idle,
+.equipmentPreview.loading,
+.equipmentPreview.error {
+  min-width: 0;
+}
+
+.equipmentPreview strong {
+  color: #243044;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.equipmentPreview p {
+  margin: 0;
+  color: #59687d;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.equipmentPreviewScores {
+  display: grid;
+  grid-template-columns: minmax(104px, 1fr) 18px minmax(104px, 1fr) minmax(132px, 1.15fr);
+  gap: 8px;
+  align-items: center;
+  min-width: min(100%, 500px);
+}
+
+.equipmentPreviewScores div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid #dbe5f2;
+  border-radius: 6px;
+}
+
+.equipmentPreviewScores span {
+  color: #69778b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.equipmentPreviewScores strong {
+  overflow: hidden;
+  color: #1f2937;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.equipmentPreviewScores b {
+  color: #087a46;
+  font-size: 15px;
+  text-align: center;
+}
+
+.equipmentPreviewSubMetric {
+  grid-column: 1 / -1;
+}
+
 .searchProgress {
   display: grid;
   gap: 8px;
@@ -2234,6 +2323,7 @@ button:disabled {
 [data-theme="dark"] .characterSummary span,
 [data-theme="dark"] .equippedCard p,
 [data-theme="dark"] .searchPanelHeader p,
+[data-theme="dark"] .equipmentPreview p,
 [data-theme="dark"] .resultHeader p,
 [data-theme="dark"] .resultHeader span,
 [data-theme="dark"] .guideLead,
@@ -2243,6 +2333,7 @@ button:disabled {
 [data-theme="dark"] .compareLine,
 [data-theme="dark"] .priceBlock span,
 [data-theme="dark"] .metric span,
+[data-theme="dark"] .equipmentPreviewScores span,
 [data-theme="dark"] .resultTable small,
 [data-theme="dark"] .graphModalHeader p,
 [data-theme="dark"] .bugReportHeader p,
@@ -2285,6 +2376,7 @@ button:disabled {
 
 [data-theme="dark"] .equippedCard,
 [data-theme="dark"] .searchModeHint,
+[data-theme="dark"] .equipmentPreview,
 [data-theme="dark"] .searchProgress,
 [data-theme="dark"] .slotTargetCard,
 [data-theme="dark"] .graphRangeControls,
@@ -2292,11 +2384,27 @@ button:disabled {
 [data-theme="dark"] .usageGuideFigure,
 [data-theme="dark"] .usageGuideList li,
 [data-theme="dark"] .metric,
+[data-theme="dark"] .equipmentPreviewScores div,
 [data-theme="dark"] .combinationItem,
 [data-theme="dark"] .combinationDetailRow {
   color: #d8e0ec;
   background: #1b2635;
   border-color: #334155;
+}
+
+[data-theme="dark"] .equipmentPreview.ready {
+  background: #0f231b;
+  border-color: #24583b;
+}
+
+[data-theme="dark"] .equipmentPreview.loading {
+  background: #132b47;
+  border-color: #2d75c7;
+}
+
+[data-theme="dark"] .equipmentPreview.error {
+  background: #2a1212;
+  border-color: #6f2f2c;
 }
 
 [data-theme="dark"] .combinationDetailHeader,
@@ -2437,6 +2545,8 @@ button:disabled {
 
 [data-theme="dark"] .equippedCard strong,
 [data-theme="dark"] .searchPanelHeader h2,
+[data-theme="dark"] .equipmentPreview strong,
+[data-theme="dark"] .equipmentPreviewScores strong,
 [data-theme="dark"] .criteriaTooltipRow span,
 [data-theme="dark"] .slotTargetCard,
 [data-theme="dark"] .optionLine,
@@ -2540,6 +2650,15 @@ button:disabled {
 
   .searchPanelHeader {
     display: grid;
+  }
+
+  .equipmentPreview.ready,
+  .equipmentPreviewScores {
+    grid-template-columns: 1fr;
+  }
+
+  .equipmentPreviewScores b {
+    display: none;
   }
 
   .infoTooltip {

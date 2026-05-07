@@ -124,6 +124,31 @@ interface CharacterResponse {
   data?: CharacterSummary;
 }
 
+interface EquipmentAssumptionPreview {
+  available: boolean;
+  message?: string;
+  hasAssumption: boolean;
+  baseScore: number | null;
+  nextScore: number | null;
+  deltaScore: number | null;
+  deltaPercent: number | null;
+  baseCombatPower: number | null;
+  nextCombatPower: number | null;
+  deltaCombatPower: number | null;
+}
+
+interface EquipmentPreviewResponse {
+  ok: boolean;
+  message?: string;
+  data?: EquipmentAssumptionPreview;
+}
+
+type EquipmentPreviewState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; data: EquipmentAssumptionPreview }
+  | { status: "error"; message: string };
+
 interface LostarkHealthResponse {
   ok: boolean;
   message?: string;
@@ -477,6 +502,9 @@ export default function AccessoryEfficiencyClient() {
   const [metricMode, setMetricMode] = useState<MetricMode>("lopec");
   const [targetWeaponLevel, setTargetWeaponLevel] = useState<TargetWeaponLevel>("current");
   const [targetArmorLevel, setTargetArmorLevel] = useState<TargetArmorLevel>("current");
+  const [equipmentPreview, setEquipmentPreview] = useState<EquipmentPreviewState>({
+    status: "idle"
+  });
   const [targetSlots, setTargetSlots] = useState<AccessorySlot[]>(ACCESSORY_SLOT_ORDER);
   const [response, setResponse] = useState<EvaluationResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -611,6 +639,92 @@ export default function AccessoryEfficiencyClient() {
   useEffect(() => {
     void refreshLopecVerificationStatus();
   }, []);
+
+  useEffect(() => {
+    if (!loadedCharacter) {
+      setEquipmentPreview({ status: "idle" });
+      return;
+    }
+
+    if (targetWeaponLevel === "current" && targetArmorLevel === "current") {
+      setEquipmentPreview({ status: "idle" });
+      return;
+    }
+
+    const trimmedApiKey = personalApiKey.trim();
+    const activeApiKey = trimmedApiKey && trimmedApiKey === usableApiKey ? usableApiKey : "";
+    const previewCharacterName = loadedCharacter.characterName;
+
+    if (trimmedApiKey && !activeApiKey) {
+      setEquipmentPreview({
+        status: "error",
+        message: "개인 API 키를 입력했다면 불러오기로 먼저 사용 가능 여부를 확인하세요."
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+
+    setEquipmentPreview({ status: "loading" });
+
+    async function loadEquipmentPreview() {
+      try {
+        const result = await fetch("/api/evaluate/equipment-preview", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            characterName: previewCharacterName,
+            targetWeaponLevel: targetWeaponLevel !== "current" ? targetWeaponLevel : undefined,
+            targetArmorLevel: targetArmorLevel !== "current" ? targetArmorLevel : undefined,
+            scoringMode,
+            apiKey: activeApiKey || undefined
+          }),
+          signal: controller.signal
+        });
+        const payload = (await result.json()) as EquipmentPreviewResponse;
+
+        if (!payload.ok || !payload.data) {
+          throw new Error(payload.message ?? "강화 가정 미리보기를 계산하지 못했습니다.");
+        }
+
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setEquipmentPreview({
+          status: "ready",
+          data: payload.data
+        });
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return;
+        }
+
+        setEquipmentPreview({
+          status: "error",
+          message:
+            error instanceof Error
+              ? error.message
+              : "강화 가정 미리보기를 계산하지 못했습니다."
+        });
+      }
+    }
+
+    void loadEquipmentPreview();
+
+    return () => {
+      controller.abort();
+    };
+  }, [
+    loadedCharacter,
+    personalApiKey,
+    scoringMode,
+    targetArmorLevel,
+    targetWeaponLevel,
+    usableApiKey
+  ]);
 
   const allResults = useMemo(() => response?.data?.results ?? [], [response?.data?.results]);
   const allCombinationResults = useMemo(
@@ -835,6 +949,7 @@ export default function AccessoryEfficiencyClient() {
     setIsLoadingCharacter(true);
     setLoadError(null);
     setResponse(null);
+    setEquipmentPreview({ status: "idle" });
     setResultPage(1);
 
     try {
@@ -1072,6 +1187,18 @@ export default function AccessoryEfficiencyClient() {
       ...current,
       [effect]: grade
     }));
+    setResponse(null);
+    setResultPage(1);
+  }
+
+  function changeTargetWeaponLevel(nextLevel: TargetWeaponLevel) {
+    setTargetWeaponLevel(nextLevel);
+    setResponse(null);
+    setResultPage(1);
+  }
+
+  function changeTargetArmorLevel(nextLevel: TargetArmorLevel) {
+    setTargetArmorLevel(nextLevel);
     setResponse(null);
     setResultPage(1);
   }
@@ -1373,7 +1500,7 @@ export default function AccessoryEfficiencyClient() {
                   value={targetWeaponLevel}
                   disabled={!loadedCharacter}
                   onChange={(event) =>
-                    setTargetWeaponLevel(event.target.value as TargetWeaponLevel)
+                    changeTargetWeaponLevel(event.target.value as TargetWeaponLevel)
                   }
                 >
                   <option value="current">{formatCurrentWeaponLevel(loadedCharacter)}</option>
@@ -1391,7 +1518,7 @@ export default function AccessoryEfficiencyClient() {
                   value={targetArmorLevel}
                   disabled={!loadedCharacter}
                   onChange={(event) =>
-                    setTargetArmorLevel(event.target.value as TargetArmorLevel)
+                    changeTargetArmorLevel(event.target.value as TargetArmorLevel)
                   }
                 >
                   <option value="current">현재 상태 그대로</option>
@@ -1427,6 +1554,8 @@ export default function AccessoryEfficiencyClient() {
                     : "악세서리 검색"}
               </button>
             </div>
+
+            {loadedCharacter ? <EquipmentPreviewCard preview={equipmentPreview} /> : null}
 
             {searchMode === "priceTarget" ? (
               <>
@@ -2074,6 +2203,95 @@ function LostarkApiKeyTooltip() {
         에서 할 수 있습니다.
       </span>
     </span>
+  );
+}
+
+function EquipmentPreviewCard({
+  preview
+}: {
+  preview: EquipmentPreviewState;
+}) {
+  if (preview.status === "idle") {
+    return (
+      <div className="equipmentPreview idle">
+        <strong>강화 가정 LOPEC 미리보기</strong>
+        <p>무기나 방어구 강화 가정을 고르면 악세 검색 전에 현재 LOPEC에서 예상 LOPEC로 얼마나 바뀌는지 먼저 계산합니다.</p>
+      </div>
+    );
+  }
+
+  if (preview.status === "loading") {
+    return (
+      <div className="equipmentPreview loading">
+        <strong>강화 가정 LOPEC 계산 중</strong>
+        <p>선택한 강화 가정을 로펙 시뮬레이터 기준으로 반영하고 있습니다.</p>
+      </div>
+    );
+  }
+
+  if (preview.status === "error") {
+    return (
+      <div className="equipmentPreview error">
+        <strong>강화 가정 LOPEC 미리보기</strong>
+        <p>{preview.message}</p>
+      </div>
+    );
+  }
+
+  const data = preview.data;
+
+  if (!data.available) {
+    return (
+      <div className="equipmentPreview error">
+        <strong>강화 가정 LOPEC 미리보기</strong>
+        <p>{data.message ?? "강화 가정 미리보기를 계산할 수 없습니다."}</p>
+      </div>
+    );
+  }
+
+  if (!data.hasAssumption) {
+    return (
+      <div className="equipmentPreview idle">
+        <strong>강화 가정 LOPEC 미리보기</strong>
+        <p>선택한 강화 가정이 현재 장비와 같아 LOPEC 변화가 없습니다.</p>
+      </div>
+    );
+  }
+
+  const scoreDelta = data.deltaScore ?? 0;
+  const deltaTone = scoreDelta > 0 ? "positive" : scoreDelta < 0 ? "negative" : undefined;
+
+  return (
+    <div className="equipmentPreview ready">
+      <div className="equipmentPreviewCopy">
+        <strong>강화 가정 LOPEC 미리보기</strong>
+        <p>선택한 무기/방어구 강화만 먼저 반영한 예상치입니다. 악세 검색 결과도 이 가정 점수를 기준으로 다시 계산됩니다.</p>
+      </div>
+      <div className="equipmentPreviewScores">
+        <div>
+          <span>현재 LOPEC</span>
+          <strong>{formatNullableNumber(data.baseScore)}</strong>
+        </div>
+        <b aria-hidden="true">→</b>
+        <div>
+          <span>예상 LOPEC</span>
+          <strong>{formatNullableNumber(data.nextScore)}</strong>
+        </div>
+        <div>
+          <span>변화량</span>
+          <strong className={deltaTone}>
+            {formatSignedNumber(data.deltaScore)}
+            {data.deltaPercent !== null ? ` (${formatSignedNumber(data.deltaPercent)}%)` : ""}
+          </strong>
+        </div>
+      </div>
+      {data.baseCombatPower !== null && data.nextCombatPower !== null ? (
+        <p className="equipmentPreviewSubMetric">
+          인게임 전투력 {formatNumber(data.baseCombatPower)} → {formatNumber(data.nextCombatPower)}
+          {data.deltaCombatPower !== null ? ` (${formatSignedNumber(data.deltaCombatPower)})` : ""}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -4190,6 +4408,18 @@ function formatNumber(value: number): string {
   return value.toLocaleString("ko-KR", {
     maximumFractionDigits: 3
   });
+}
+
+function formatNullableNumber(value: number | null): string {
+  return value === null ? "-" : formatNumber(value);
+}
+
+function formatSignedNumber(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "-";
+  }
+
+  return `${value > 0 ? "+" : ""}${formatNumber(value)}`;
 }
 
 function formatCompactNumber(value: number): string {

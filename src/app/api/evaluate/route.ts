@@ -10,13 +10,7 @@ import {
 } from "@/lib/lostark/auction";
 import { getCharacterState } from "@/lib/lostark/armory";
 import { LostarkApiError } from "@/lib/lostark/client";
-import {
-  calculateArmorMainStatsForTarget,
-  calculateEquipmentStats,
-  createCurrentEquipmentTarget,
-  decodeEquipmentTarget,
-  encodeEquipmentTarget
-} from "@/lib/domain/equipment";
+import { readEquipmentAssumptionTargets } from "@/lib/domain/equipment-assumptions";
 import { readExactLopecDisplayCombatPower } from "@/lib/lopec/exact-score";
 import type {
   AccessoryScoringMode,
@@ -166,8 +160,13 @@ async function evaluateRequest(
   const character = await getCharacterState(characterName, apiKey);
   const scoringMode =
     requestedScoringMode ?? (character.lopec?.simulator?.profile.supportCheck ? "support" : "dealer");
-  const targetWeaponAttack = readTargetWeaponAttack(character, body.targetWeaponLevel);
-  const targetArmorMainStats = readTargetArmorMainStats(character, body.targetArmorLevel);
+  const { targetWeaponAttack, targetArmorMainStats } = readEquipmentAssumptionTargets(
+    character,
+    {
+      targetWeaponLevel: body.targetWeaponLevel,
+      targetArmorLevel: body.targetArmorLevel
+    }
+  );
 
   updateSearchProgress(progressId, {
     message:
@@ -312,61 +311,6 @@ function buildCharacterSummary(character: Awaited<ReturnType<typeof getCharacter
     armor: character.armor,
     accessories: character.accessories
   };
-}
-
-function readTargetWeaponAttack(
-  character: Awaited<ReturnType<typeof getCharacterState>>,
-  targetWeaponLevel: string | number | null | undefined
-): number | null {
-  const target = decodeEquipmentTarget(targetWeaponLevel);
-
-  if (!target) {
-    return null;
-  }
-
-  const current = createCurrentEquipmentTarget(character.weapon);
-
-  if (current && encodeEquipmentTarget(current) === encodeEquipmentTarget(target)) {
-    return null;
-  }
-
-  const stats = calculateEquipmentStats("weapon", target);
-
-  if (!stats || stats.stat === character.weapon.attack) {
-    return null;
-  }
-
-  return stats.stat;
-}
-
-function readTargetArmorMainStats(
-  character: Awaited<ReturnType<typeof getCharacterState>>,
-  targetArmorLevel: string | number | null | undefined
-) {
-  const target = decodeEquipmentTarget(targetArmorLevel);
-
-  if (!target) {
-    return null;
-  }
-
-  const targetStats = calculateArmorMainStatsForTarget(target);
-
-  if (!targetStats) {
-    return null;
-  }
-
-  const armorPieces = Object.values(character.armor.pieces).filter(
-    (piece): piece is NonNullable<typeof piece> => Boolean(piece)
-  );
-  const isAlreadyAllTarget =
-    armorPieces.length > 0 &&
-    armorPieces.every((piece) => {
-      const current = createCurrentEquipmentTarget(piece);
-
-      return current && encodeEquipmentTarget(current) === encodeEquipmentTarget(target);
-    });
-
-  return isAlreadyAllTarget ? null : targetStats;
 }
 
 function normalizeScoringMode(value: AccessoryScoringMode | undefined): AccessoryScoringMode | null {
