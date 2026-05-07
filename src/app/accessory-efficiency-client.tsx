@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type AccessoryType = "necklace" | "earring" | "ring";
 type AccessorySlot = "necklace" | "earring1" | "earring2" | "ring1" | "ring2";
@@ -171,9 +171,11 @@ interface LopecVerificationStatus {
   lastFailureAt: string | null;
   lastDurationMs: number | null;
   lastMessage: string;
+  lastOutputTail?: string | null;
   isFresh: boolean;
   isRunning: boolean;
   canVerify: boolean;
+  ageMs?: number | null;
   freshUntil: string | null;
 }
 
@@ -181,6 +183,32 @@ interface LopecVerificationResponse {
   ok: boolean;
   message?: string;
   data?: LopecVerificationStatus;
+}
+
+type VersionComparison = "same" | "behind" | "ahead" | "diverged" | "unknown";
+
+interface AppVersionMetadata {
+  packageName: string;
+  packageVersion: string;
+  environment: string;
+  source: "vercel" | "git" | "unknown";
+  commitSha: string | null;
+  shortCommitSha: string | null;
+  commitRef: string | null;
+  latestMainSha: string | null;
+  latestMainShortSha: string | null;
+  comparison: VersionComparison;
+  deploymentUrl: string | null;
+  vercelEnv: string | null;
+}
+
+interface AppStatusResponse {
+  ok: boolean;
+  message?: string;
+  data?: {
+    verification: LopecVerificationStatus;
+    version: AppVersionMetadata;
+  };
 }
 
 interface EvaluationResponse {
@@ -357,6 +385,8 @@ const EFFECT_OPTIONS: Record<
 const GRADE_OPTIONS: SearchOptionGrade[] = ["선택", "상", "중", "하"];
 const RESULT_PAGE_SIZE = 10;
 const DEFAULT_MIN_QUALITY = 67;
+const LOPEC_VERIFICATION_FRESH_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LOPEC_VERIFICATION_STORAGE_KEY = "lopec-accessory-verification-status";
 
 const CARD_SORT_OPTIONS: Array<{ value: CardSortMode; label: string }> = [
   { value: "goldPerScoreAsc", label: "1점당 골드 낮은 순" },
@@ -544,6 +574,7 @@ export default function AccessoryEfficiencyClient() {
   const [themeMode, setThemeMode] = useState<ThemeMode>("light");
   const [focusedGuideStep, setFocusedGuideStep] = useState<GuideStepId | null>(null);
   const [lopecVerification, setLopecVerification] = useState<LopecVerificationStatus | null>(null);
+  const [appVersion, setAppVersion] = useState<AppVersionMetadata | null>(null);
   const [isLopecVerificationLoading, setIsLopecVerificationLoading] = useState(false);
   const [lopecVerificationError, setLopecVerificationError] = useState<string | null>(null);
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
@@ -553,6 +584,35 @@ export default function AccessoryEfficiencyClient() {
   const resultsPanelRef = useRef<HTMLElement>(null);
   const searchButtonRef = useRef<HTMLButtonElement>(null);
   const graphButtonRef = useRef<HTMLButtonElement>(null);
+
+  const refreshAppStatus = useCallback(async (persistedStatus?: LopecVerificationStatus | null) => {
+    try {
+      const result = await fetch("/api/status", {
+        cache: "no-store"
+      });
+      const payload = (await result.json()) as AppStatusResponse;
+
+      if (!payload.ok || !payload.data) {
+        throw new Error(payload.message ?? "앱 상태를 불러오지 못했습니다.");
+      }
+
+      const mergedStatus = chooseLopecVerificationStatus(
+        normalizeLopecVerificationStatus(payload.data.verification),
+        persistedStatus ?? readPersistedLopecVerificationStatus()
+      );
+
+      setAppVersion(payload.data.version);
+      setLopecVerification(mergedStatus);
+      persistLopecVerificationStatus(mergedStatus);
+      setLopecVerificationError(null);
+    } catch (error) {
+      if (!persistedStatus) {
+        setLopecVerificationError(
+          error instanceof Error ? error.message : "앱 상태를 불러오지 못했습니다."
+        );
+      }
+    }
+  }, []);
 
   useEffect(() => {
     if (!isSearching || !currentProgressId) {
@@ -643,8 +703,14 @@ export default function AccessoryEfficiencyClient() {
   }, [themeMode]);
 
   useEffect(() => {
-    void refreshLopecVerificationStatus();
-  }, []);
+    const persistedStatus = readPersistedLopecVerificationStatus();
+
+    if (persistedStatus) {
+      setLopecVerification(persistedStatus);
+    }
+
+    void refreshAppStatus(persistedStatus);
+  }, [refreshAppStatus]);
 
   useEffect(() => {
     if (!loadedCharacter) {
@@ -897,26 +963,6 @@ export default function AccessoryEfficiencyClient() {
     visibleCombinationResults
   ]);
 
-  async function refreshLopecVerificationStatus() {
-    try {
-      const result = await fetch("/api/lopec/verification", {
-        cache: "no-store"
-      });
-      const payload = (await result.json()) as LopecVerificationResponse;
-
-      if (!payload.ok || !payload.data) {
-        throw new Error(payload.message ?? "로펙 수식 확인 상태를 불러오지 못했습니다.");
-      }
-
-      setLopecVerification(payload.data);
-      setLopecVerificationError(null);
-    } catch (error) {
-      setLopecVerificationError(
-        error instanceof Error ? error.message : "로펙 수식 확인 상태를 불러오지 못했습니다."
-      );
-    }
-  }
-
   async function handleLopecVerification() {
     if (lopecVerification?.isFresh || isLopecVerificationLoading) {
       return;
@@ -936,11 +982,18 @@ export default function AccessoryEfficiencyClient() {
         throw new Error(payload.message ?? "로펙 수식 일치 확인에 실패했습니다.");
       }
 
-      setLopecVerification(payload.data);
+      const verifiedStatus = normalizeLopecVerificationStatus(payload.data);
+
+      setLopecVerification(verifiedStatus);
+      persistLopecVerificationStatus(verifiedStatus);
 
       if (!payload.ok) {
         setLopecVerificationError(payload.message ?? payload.data.lastMessage);
+        return;
       }
+
+      setLopecVerificationError(null);
+      void refreshAppStatus(verifiedStatus);
     } catch (error) {
       setLopecVerificationError(
         error instanceof Error ? error.message : "로펙 수식 일치 확인에 실패했습니다."
@@ -1313,6 +1366,7 @@ export default function AccessoryEfficiencyClient() {
           </button>
           <LopecVerificationBadge
             status={lopecVerification}
+            version={appVersion}
             isLoading={isLopecVerificationLoading}
             error={lopecVerificationError}
             onVerify={handleLopecVerification}
@@ -1992,11 +2046,13 @@ function BugReportModal({ onClose }: { onClose: () => void }) {
 
 function LopecVerificationBadge({
   status,
+  version,
   isLoading,
   error,
   onVerify
 }: {
   status: LopecVerificationStatus | null;
+  version: AppVersionMetadata | null;
   isLoading: boolean;
   error: string | null;
   onVerify: () => void;
@@ -2004,16 +2060,18 @@ function LopecVerificationBadge({
   const isFresh = Boolean(status?.isFresh);
   const isRunning = Boolean(status?.isRunning) || isLoading;
   const canVerify = !isFresh && !isRunning;
-  const stateClass = error ? "error" : isFresh ? "fresh" : "stale";
+  const stateClass =
+    error || isLopecVerificationFailureLatest(status) ? "error" : isFresh ? "fresh" : "stale";
 
   return (
     <div className={["lopecVerification", stateClass].join(" ")} aria-live="polite">
       <div className="lopecVerificationText">
-        <strong>최신 로펙 수식 일치 확인</strong>
+        <strong>로펙 수식 및 배포 상태</strong>
         <span>{formatVerificationStatusText(status, isRunning, error)}</span>
+        <small>{formatAppVersionText(version)}</small>
       </div>
       <button type="button" onClick={onVerify} disabled={!canVerify}>
-        {isRunning ? "검증 중" : isFresh ? "최신" : "검증하기"}
+        {isRunning ? "확인 중" : isFresh ? "최신" : "수식 확인"}
       </button>
     </div>
   );
@@ -3651,6 +3709,10 @@ function formatVerificationStatusText(
     return error;
   }
 
+  if (isLopecVerificationFailureLatest(status)) {
+    return `마지막 확인 실패 · ${formatDateTime(status.lastFailureAt)}`;
+  }
+
   if (!status?.lastSuccessAt) {
     return "검증 이력 없음";
   }
@@ -3662,6 +3724,169 @@ function formatVerificationStatusText(
   }
 
   return `마지막 검증 ${lastSuccessText}`;
+}
+
+function formatAppVersionText(version: AppVersionMetadata | null): string {
+  if (!version) {
+    return "앱 버전 확인 중";
+  }
+
+  const versionText = `앱 v${version.packageVersion}`;
+  const commitText =
+    version.commitRef && version.shortCommitSha
+      ? `${version.commitRef}@${version.shortCommitSha}`
+      : version.shortCommitSha
+        ? `커밋 ${version.shortCommitSha}`
+        : "커밋 정보 없음";
+
+  return `${versionText} · ${commitText} · ${formatVersionComparisonText(version)}`;
+}
+
+function formatVersionComparisonText(version: AppVersionMetadata): string {
+  switch (version.comparison) {
+    case "same":
+      return "origin/main과 일치";
+    case "behind":
+      return `origin/main ${version.latestMainShortSha ?? ""}보다 오래됨`.trim();
+    case "ahead":
+      return "origin/main보다 앞선 커밋";
+    case "diverged":
+      return "origin/main과 분기됨";
+    default:
+      return version.source === "vercel" ? "Vercel 배포 커밋" : "최신 main 비교 불가";
+  }
+}
+
+function readPersistedLopecVerificationStatus(): LopecVerificationStatus | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const value = window.localStorage.getItem(LOPEC_VERIFICATION_STORAGE_KEY);
+
+    if (!value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(value) as Partial<LopecVerificationStatus>;
+
+    if (!isLopecVerificationStatusLike(parsed)) {
+      return null;
+    }
+
+    return normalizeLopecVerificationStatus(parsed, true);
+  } catch {
+    return null;
+  }
+}
+
+function persistLopecVerificationStatus(status: LopecVerificationStatus): void {
+  if (typeof window === "undefined" || !hasLopecVerificationHistory(status)) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      LOPEC_VERIFICATION_STORAGE_KEY,
+      JSON.stringify(normalizeLopecVerificationStatus(status, true))
+    );
+  } catch {
+    // Local persistence is a convenience fallback when serverless storage is empty.
+  }
+}
+
+function chooseLopecVerificationStatus(
+  serverStatus: LopecVerificationStatus,
+  persistedStatus: LopecVerificationStatus | null
+): LopecVerificationStatus {
+  if (!persistedStatus || !hasLopecVerificationHistory(persistedStatus)) {
+    return serverStatus;
+  }
+
+  if (!hasLopecVerificationHistory(serverStatus)) {
+    return persistedStatus;
+  }
+
+  return readLopecVerificationLatestTimestamp(persistedStatus) >
+    readLopecVerificationLatestTimestamp(serverStatus)
+    ? persistedStatus
+    : serverStatus;
+}
+
+function normalizeLopecVerificationStatus(
+  status: Partial<LopecVerificationStatus>,
+  forceIdle = false
+): LopecVerificationStatus {
+  const lastSuccessAt = typeof status.lastSuccessAt === "string" ? status.lastSuccessAt : null;
+  const successTime = lastSuccessAt ? new Date(lastSuccessAt).getTime() : Number.NaN;
+  const isFresh =
+    Number.isFinite(successTime) && Date.now() - successTime <= LOPEC_VERIFICATION_FRESH_WINDOW_MS;
+  const isRunning = forceIdle ? false : Boolean(status.isRunning);
+
+  return {
+    lastAttemptAt: typeof status.lastAttemptAt === "string" ? status.lastAttemptAt : null,
+    lastSuccessAt,
+    lastFailureAt: typeof status.lastFailureAt === "string" ? status.lastFailureAt : null,
+    lastDurationMs: typeof status.lastDurationMs === "number" ? status.lastDurationMs : null,
+    lastMessage:
+      typeof status.lastMessage === "string"
+        ? status.lastMessage
+        : "로펙 수식 일치 확인 이력이 없습니다.",
+    lastOutputTail: typeof status.lastOutputTail === "string" ? status.lastOutputTail : null,
+    isFresh,
+    isRunning,
+    canVerify: !isFresh && !isRunning,
+    ageMs: Number.isFinite(successTime) ? Date.now() - successTime : null,
+    freshUntil: Number.isFinite(successTime)
+      ? new Date(successTime + LOPEC_VERIFICATION_FRESH_WINDOW_MS).toISOString()
+      : null
+  };
+}
+
+function isLopecVerificationStatusLike(
+  value: Partial<LopecVerificationStatus>
+): value is LopecVerificationStatus {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    ("lastAttemptAt" in value || "lastSuccessAt" in value || "lastFailureAt" in value)
+  );
+}
+
+function hasLopecVerificationHistory(status: LopecVerificationStatus): boolean {
+  return Boolean(status.lastAttemptAt || status.lastSuccessAt || status.lastFailureAt);
+}
+
+function isLopecVerificationFailureLatest(
+  status: LopecVerificationStatus | null
+): status is LopecVerificationStatus & { lastFailureAt: string } {
+  if (!status?.lastFailureAt) {
+    return false;
+  }
+
+  return (
+    readTimestamp(status.lastFailureAt) >=
+    Math.max(readTimestamp(status.lastSuccessAt), readTimestamp(status.lastAttemptAt))
+  );
+}
+
+function readLopecVerificationLatestTimestamp(status: LopecVerificationStatus): number {
+  return Math.max(
+    readTimestamp(status.lastAttemptAt),
+    readTimestamp(status.lastSuccessAt),
+    readTimestamp(status.lastFailureAt)
+  );
+}
+
+function readTimestamp(value: string | null | undefined): number {
+  if (!value) {
+    return 0;
+  }
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function readRetryRemainingSeconds(progress: SearchProgressState, now: number): number | null {

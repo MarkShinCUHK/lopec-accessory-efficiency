@@ -267,8 +267,8 @@ select {
   gap: 10px;
   align-items: center;
   min-width: 0;
-  max-width: 520px;
-  height: 42px;
+  max-width: 620px;
+  min-height: 54px;
   padding: 6px 8px 6px 12px;
   background: #f8fafc;
   border: 1px solid #cbd4e3;
@@ -307,6 +307,16 @@ select {
   color: #637084;
   font-size: 11px;
   font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lopecVerificationText small {
+  overflow: hidden;
+  color: #778397;
+  font-size: 10px;
+  font-weight: 800;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2351,6 +2361,7 @@ button:disabled {
 
 [data-theme="dark"] .topNavBrand span,
 [data-theme="dark"] .lopecVerificationText span,
+[data-theme="dark"] .lopecVerificationText small,
 [data-theme="dark"] .characterSummary p,
 [data-theme="dark"] .characterSummary span,
 [data-theme="dark"] .equippedCard p,
