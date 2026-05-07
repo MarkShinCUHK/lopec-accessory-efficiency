@@ -44,8 +44,8 @@ const LOPEC_ACCESSORY_SLOTS: LopecAccessorySlot[] = [
   "ring2"
 ];
 const ARK_GRID_ATTACK_CORE: Record<number, Record<"유물" | "고대", { atkPlus: number; atkPer: number }>> = {
-  10: { 유물: { atkPlus: 0, atkPer: 0 }, 고대: { atkPlus: 0, atkPer: 0 } },
-  14: { 유물: { atkPlus: 0, atkPer: 0.55 }, 고대: { atkPlus: 0, atkPer: 0.55 } },
+  10: { 유물: { atkPlus: 900, atkPer: 0 }, 고대: { atkPlus: 900, atkPer: 0 } },
+  14: { 유물: { atkPlus: 900, atkPer: 0.55 }, 고대: { atkPlus: 900, atkPer: 0.55 } },
   17: { 유물: { atkPlus: 2700, atkPer: 1.65 }, 고대: { atkPlus: 3600, atkPer: 2.2 } },
   18: { 유물: { atkPlus: 2700, atkPer: 1.81 }, 고대: { atkPlus: 3600, atkPer: 2.36 } },
   19: { 유물: { atkPlus: 2700, atkPer: 1.97 }, 고대: { atkPlus: 3600, atkPer: 2.52 } },
@@ -128,7 +128,7 @@ const DEALER_CLASS_BASE_EFFECTS: Record<
   "초심": { atkSpeed: 8, critDamage: 0, critRate: 30, moveSpeed: 16 },
   역천지체: { atkSpeed: 0, critDamage: 0, critRate: 0, moveSpeed: 0 },
   세맥타통: { atkSpeed: 0, critDamage: 75, critRate: 0, moveSpeed: 0 },
-  절제: { atkSpeed: 0, critDamage: 70, critRate: 20, moveSpeed: 0 },
+  절제: { atkSpeed: 0, critDamage: 0, critRate: 20, moveSpeed: 0 },
   절정: { atkSpeed: 15, critDamage: 70, critRate: 20, moveSpeed: 15 },
   일격필살: { atkSpeed: 0, critDamage: 0, critRate: 20, moveSpeed: 0 },
   오의난무: { atkSpeed: 8, critDamage: 0, critRate: 20, moveSpeed: 0 },
