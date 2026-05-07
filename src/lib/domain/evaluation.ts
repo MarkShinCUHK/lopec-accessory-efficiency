@@ -2,6 +2,7 @@ import {
   getReplaceableSlots,
   totalMainStat,
   type AccessoryCandidate,
+  type AccessoryMetricMode,
   type AccessoryScoringMode,
   type AccessorySlot,
   type AccessoryType,
@@ -19,6 +20,7 @@ export interface EvaluationResult {
   candidate: AccessoryCandidate;
   replacedSlot: AccessorySlot;
   replacedAccessory: AccessoryState;
+  metrics: EvaluationMetricSet;
   baseScore: number;
   nextScore: number;
   deltaScore: number;
@@ -30,16 +32,31 @@ export interface EvaluationResult {
   goldPerScore: number;
 }
 
+export interface EvaluationMetric {
+  baseScore: number;
+  nextScore: number;
+  deltaScore: number;
+  candidateEfficiency: number;
+  replacedEfficiency: number;
+  deltaEfficiency: number;
+  scorePerGold: number;
+  goldPerScore: number;
+}
+
+export type EvaluationMetricSet = Record<AccessoryMetricMode, EvaluationMetric>;
+
 export interface EvaluationCombinationReplacement {
   candidate: AccessoryCandidate;
   replacedSlot: AccessorySlot;
   replacedAccessory: AccessoryState;
   buyPrice: number;
+  metrics: EvaluationMetricSet;
   deltaScore: number;
 }
 
 export interface EvaluationCombinationResult {
   replacements: EvaluationCombinationReplacement[];
+  metrics: EvaluationMetricSet;
   baseScore: number;
   nextScore: number;
   deltaScore: number;
@@ -77,7 +94,9 @@ export function evaluateCandidate(
   }
 
   const results = getReplaceableSlots(candidate.type)
-    .map((slot) => evaluateCandidateForSlot(scoringCharacter, slot, candidate, scoringMode))
+    .map((slot) =>
+      evaluateCandidateForSlot(scoringCharacter, slot, candidate, scoringMode)
+    )
     .filter((result): result is EvaluationResult => Boolean(result));
 
   return results.sort((a, b) => b.deltaScore - a.deltaScore)[0] ?? null;
@@ -95,30 +114,43 @@ export function evaluateCandidateForSlot(
     return null;
   }
 
-  const baseScore = character.lopec?.score ?? character.combatPower;
   const currentAccessory = character.accessories[slot];
-  const exactScore = calculateExactLopecReplacement(character, slot, candidate, scoringMode);
-  const scoreRatio =
-    exactScore?.scoreRatio ?? scoreReplacementRatio(character, slot, candidate, scoringMode);
-  const nextScore = exactScore?.nextScore ?? round2(baseScore * scoreRatio);
-  const deltaScore = exactScore?.deltaScore ?? round2(nextScore - baseScore);
-  const candidateEfficiency = exactScore?.deltaEfficiency ?? round3((scoreRatio - 1) * 100);
-  const replacedEfficiency = 0;
-  const deltaEfficiency = candidateEfficiency;
+  const lopecMetric = calculateEvaluationMetric(
+    character,
+    slot,
+    candidate,
+    buyPrice,
+    scoringMode,
+    "lopec"
+  );
+  const combatMetric = calculateEvaluationMetric(
+    character,
+    slot,
+    candidate,
+    buyPrice,
+    scoringMode,
+    "combatPower"
+  );
+  const metrics: EvaluationMetricSet = {
+    lopec: lopecMetric,
+    combatPower: combatMetric
+  };
+  const primaryMetric = metrics.lopec;
 
   return {
     candidate,
     replacedSlot: slot,
     replacedAccessory: currentAccessory,
-    baseScore,
-    nextScore,
-    deltaScore,
-    candidateEfficiency,
-    replacedEfficiency,
-    deltaEfficiency,
+    metrics,
+    baseScore: primaryMetric.baseScore,
+    nextScore: primaryMetric.nextScore,
+    deltaScore: primaryMetric.deltaScore,
+    candidateEfficiency: primaryMetric.candidateEfficiency,
+    replacedEfficiency: primaryMetric.replacedEfficiency,
+    deltaEfficiency: primaryMetric.deltaEfficiency,
     buyPrice,
-    scorePerGold: deltaScore > 0 ? deltaScore / buyPrice : 0,
-    goldPerScore: deltaScore > 0 ? buyPrice / deltaScore : Number.POSITIVE_INFINITY
+    scorePerGold: primaryMetric.scorePerGold,
+    goldPerScore: primaryMetric.goldPerScore
   };
 }
 
@@ -137,7 +169,9 @@ export function evaluateCandidates(
   );
 
   return candidates
-    .map((candidate) => evaluateCandidate(scoringCharacter, candidate, scoringMode))
+    .map((candidate) =>
+      evaluateCandidate(scoringCharacter, candidate, scoringMode)
+    )
     .filter((result): result is EvaluationResult => Boolean(result))
     .sort((a, b) => {
       if (a.goldPerScore !== b.goldPerScore) {
@@ -183,7 +217,10 @@ export function evaluatePriceTargetCombinations(
         .map((candidate) => evaluateCandidateForSlot(scoringCharacter, slot, candidate, scoringMode))
         .filter(
           (result): result is EvaluationResult =>
-            result !== null && result.deltaScore > 0 && result.buyPrice <= maxBudget
+            result !== null &&
+            result.buyPrice <= maxBudget &&
+            (result.metrics.lopec.deltaScore > 0 ||
+              result.metrics.combatPower.deltaScore > 0)
         )
         .sort(compareSingleReplacementForCombination)
     };
@@ -199,7 +236,10 @@ export function evaluatePriceTargetCombinations(
     .map((combo) => buildCombinationResult(scoringCharacter, combo, scoringMode))
     .filter(
       (result): result is EvaluationCombinationResult =>
-        result !== null && result.deltaScore > 0 && result.buyPrice <= maxBudget
+        result !== null &&
+        result.buyPrice <= maxBudget &&
+        (result.metrics.lopec.deltaScore > 0 ||
+          result.metrics.combatPower.deltaScore > 0)
     );
 
   return dedupeCombinationResults(results)
@@ -297,6 +337,8 @@ function createScoringCharacter(
         ? {
             ...character.lopec,
             score: equipmentSimulation.score,
+            combatPower:
+              equipmentSimulation.combatPower ?? character.lopec.combatPower,
             simulator: equipmentSimulation.simulator
           }
         : character.lopec
@@ -395,6 +437,7 @@ function appendCandidateToCombination(
         replacedSlot: candidateResult.replacedSlot,
         replacedAccessory: candidateResult.replacedAccessory,
         buyPrice: candidateResult.buyPrice,
+        metrics: candidateResult.metrics,
         deltaScore: candidateResult.deltaScore
       }
     ],
@@ -409,20 +452,13 @@ function buildCombinationResult(
   combo: CombinationBeam,
   scoringMode?: AccessoryScoringMode
 ): EvaluationCombinationResult | null {
-  const baseScore = character.lopec?.score ?? character.combatPower;
-  const exactScore = calculateExactLopecReplacementSet(
-    character,
-    combo.replacements.map((replacement) => ({
-      replacedSlot: replacement.replacedSlot,
-      candidate: replacement.candidate
-    })),
-    scoringMode
-  );
-  const nextScore =
-    exactScore?.nextScore ?? round2(baseScore + combo.estimatedDeltaScore);
-  const deltaScore = exactScore?.deltaScore ?? round2(nextScore - baseScore);
-  const deltaEfficiency =
-    exactScore?.deltaEfficiency ?? round3((deltaScore / baseScore) * 100);
+  const lopecMetric = calculateCombinationMetric(character, combo, scoringMode, "lopec");
+  const combatMetric = calculateCombinationMetric(character, combo, scoringMode, "combatPower");
+  const metrics: EvaluationMetricSet = {
+    lopec: lopecMetric,
+    combatPower: combatMetric
+  };
+  const primaryMetric = metrics.lopec;
 
   if (combo.buyPrice <= 0) {
     return null;
@@ -430,14 +466,114 @@ function buildCombinationResult(
 
   return {
     replacements: combo.replacements,
+    metrics,
+    baseScore: primaryMetric.baseScore,
+    nextScore: primaryMetric.nextScore,
+    deltaScore: primaryMetric.deltaScore,
+    deltaEfficiency: primaryMetric.deltaEfficiency,
+    buyPrice: combo.buyPrice,
+    scorePerGold: primaryMetric.scorePerGold,
+    goldPerScore: primaryMetric.goldPerScore
+  };
+}
+
+function calculateEvaluationMetric(
+  character: CharacterState,
+  slot: AccessorySlot,
+  candidate: AccessoryCandidate,
+  buyPrice: number,
+  scoringMode: AccessoryScoringMode | undefined,
+  metricMode: AccessoryMetricMode
+): EvaluationMetric {
+  const baseScore = readBaseMetricScore(character, metricMode);
+  const exactScore = calculateExactLopecReplacement(
+    character,
+    slot,
+    candidate,
+    scoringMode,
+    metricMode
+  );
+  const scoreRatio =
+    exactScore?.scoreRatio ?? scoreReplacementRatio(character, slot, candidate, scoringMode);
+  const nextScore =
+    exactScore?.nextScore ?? round2(baseScore * scoreRatio);
+  const deltaScore = exactScore?.deltaScore ?? round2(nextScore - baseScore);
+  const candidateEfficiency = exactScore?.deltaEfficiency ?? round3((scoreRatio - 1) * 100);
+  const replacedEfficiency = 0;
+  const deltaEfficiency = candidateEfficiency;
+
+  return createMetric(baseScore, nextScore, deltaScore, candidateEfficiency, replacedEfficiency, deltaEfficiency, buyPrice);
+}
+
+function calculateCombinationMetric(
+  character: CharacterState,
+  combo: CombinationBeam,
+  scoringMode: AccessoryScoringMode | undefined,
+  metricMode: AccessoryMetricMode
+): EvaluationMetric {
+  const baseScore = readBaseMetricScore(character, metricMode);
+  const exactScore = calculateExactLopecReplacementSet(
+    character,
+    combo.replacements.map((replacement) => ({
+      replacedSlot: replacement.replacedSlot,
+      candidate: replacement.candidate
+    })),
+    scoringMode,
+    metricMode
+  );
+  const estimatedDeltaScore = combo.replacements.reduce(
+    (sum, replacement) =>
+      sum + readReplacementMetricDelta(replacement, metricMode),
+    0
+  );
+  const nextScore =
+    exactScore?.nextScore ?? round2(baseScore + estimatedDeltaScore);
+  const deltaScore = exactScore?.deltaScore ?? round2(nextScore - baseScore);
+  const deltaEfficiency =
+    exactScore?.deltaEfficiency ?? round3((deltaScore / baseScore) * 100);
+
+  return createMetric(baseScore, nextScore, deltaScore, deltaEfficiency, 0, deltaEfficiency, combo.buyPrice);
+}
+
+function createMetric(
+  baseScore: number,
+  nextScore: number,
+  deltaScore: number,
+  candidateEfficiency: number,
+  replacedEfficiency: number,
+  deltaEfficiency: number,
+  buyPrice: number
+): EvaluationMetric {
+  return {
     baseScore,
     nextScore,
     deltaScore,
+    candidateEfficiency,
+    replacedEfficiency,
     deltaEfficiency,
-    buyPrice: combo.buyPrice,
-    scorePerGold: deltaScore > 0 ? deltaScore / combo.buyPrice : 0,
-    goldPerScore: deltaScore > 0 ? combo.buyPrice / deltaScore : Number.POSITIVE_INFINITY
+    scorePerGold: deltaScore > 0 ? deltaScore / buyPrice : 0,
+    goldPerScore: deltaScore > 0 ? buyPrice / deltaScore : Number.POSITIVE_INFINITY
   };
+}
+
+function readBaseMetricScore(
+  character: CharacterState,
+  metricMode: AccessoryMetricMode
+): number {
+  return metricMode === "combatPower"
+    ? (character.lopec?.combatPower ?? character.combatPower)
+    : (character.lopec?.score ?? character.combatPower);
+}
+
+function readReplacementMetricDelta(
+  replacement: EvaluationCombinationReplacement,
+  metricMode: AccessoryMetricMode
+): number {
+  const metrics = (replacement as EvaluationCombinationReplacement & {
+    metrics?: EvaluationMetricSet;
+  }).metrics;
+
+  return metrics?.[metricMode]?.deltaScore ?? replacement.deltaScore;
 }
 
 function normalizeTargetSlots(

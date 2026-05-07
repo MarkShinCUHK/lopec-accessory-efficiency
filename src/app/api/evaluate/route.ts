@@ -10,8 +10,14 @@ import {
 } from "@/lib/lostark/auction";
 import { getCharacterState } from "@/lib/lostark/armory";
 import { LostarkApiError } from "@/lib/lostark/client";
-import { readArmorMainStatsForEnhancementLevel } from "@/lib/domain/armor";
-import { readWeaponAttackForEnhancementLevel } from "@/lib/domain/weapon";
+import {
+  calculateArmorMainStatsForTarget,
+  calculateEquipmentStats,
+  createCurrentEquipmentTarget,
+  decodeEquipmentTarget,
+  encodeEquipmentTarget
+} from "@/lib/domain/equipment";
+import { readExactLopecDisplayCombatPower } from "@/lib/lopec/exact-score";
 import type {
   AccessoryScoringMode,
   AccessorySlot,
@@ -53,8 +59,8 @@ interface EvaluateRequestBody {
   searchMode?: "optionTarget" | "priceTarget";
   scoringMode?: AccessoryScoringMode;
   targetSlots?: AccessorySlot[];
-  targetWeaponLevel?: number | null;
-  targetArmorLevel?: number | null;
+  targetWeaponLevel?: string | number | null;
+  targetArmorLevel?: string | number | null;
   progressId?: string;
   apiKey?: string;
 }
@@ -229,7 +235,7 @@ async function evaluateRequest(
         note:
           scoringMode === "support"
             ? "체크한 악세서리 슬롯을 서포터 LOPEC 버프력 기준으로 동시에 바꿨을 때 목표 가격 안에서 점수가 가장 많이 오르는 조합입니다."
-            : "체크한 악세서리 슬롯을 바꿨을 때 목표 가격 안에서 점수가 가장 많이 오르는 조합입니다."
+            : "체크한 악세서리 슬롯을 바꿨을 때 목표 가격 안에서 점수가 가장 많이 오르는 조합입니다. 로펙점수와 인게임 전투력은 함께 계산됩니다."
       }
     };
   }
@@ -277,7 +283,7 @@ async function evaluateRequest(
       note:
         scoringMode === "support"
           ? "경매장 API에는 상/중/하로 선택한 서포터 핵심 옵션을 직접 넣고, 선택으로 둔 핵심 옵션은 결과에서 제외합니다. 점수는 로펙 서포터 버프력 기준으로 악세 교체 후 낙인력, 아덴 게이지, 아군 공격력/피해량 강화, 공격력 변화를 다시 계산합니다."
-          : "경매장 API에는 상/중/하로 선택한 핵심 옵션을 직접 넣고, 선택으로 둔 핵심 옵션은 결과에서 제외합니다. 점수는 로펙 현재 점수를 기준으로 악세 교체 후 공격력, 추가 피해, 적에게 주는 피해, 치명타, 깨달음 변화를 다시 계산합니다."
+          : "경매장 API에는 상/중/하로 선택한 핵심 옵션을 직접 넣고, 선택으로 둔 핵심 옵션은 결과에서 제외합니다. 로펙점수와 인게임 전투력은 악세 교체 후 함께 다시 계산합니다."
     }
   };
 }
@@ -298,7 +304,7 @@ function buildCharacterSummary(character: Awaited<ReturnType<typeof getCharacter
     serverName: character.serverName,
     className: character.className,
     itemAvgLevel: character.itemAvgLevel,
-    combatPower: character.combatPower,
+    combatPower: readExactLopecDisplayCombatPower(character),
     lopecScore: character.lopec?.score ?? null,
     isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
     imageUrl: character.imageUrl,
@@ -310,24 +316,40 @@ function buildCharacterSummary(character: Awaited<ReturnType<typeof getCharacter
 
 function readTargetWeaponAttack(
   character: Awaited<ReturnType<typeof getCharacterState>>,
-  targetWeaponLevel: number | null | undefined
+  targetWeaponLevel: string | number | null | undefined
 ): number | null {
-  if (!targetWeaponLevel || targetWeaponLevel === character.weapon.enhancementLevel) {
+  const target = decodeEquipmentTarget(targetWeaponLevel);
+
+  if (!target) {
     return null;
   }
 
-  return readWeaponAttackForEnhancementLevel(targetWeaponLevel);
+  const current = createCurrentEquipmentTarget(character.weapon);
+
+  if (current && encodeEquipmentTarget(current) === encodeEquipmentTarget(target)) {
+    return null;
+  }
+
+  const stats = calculateEquipmentStats("weapon", target);
+
+  if (!stats || stats.stat === character.weapon.attack) {
+    return null;
+  }
+
+  return stats.stat;
 }
 
 function readTargetArmorMainStats(
   character: Awaited<ReturnType<typeof getCharacterState>>,
-  targetArmorLevel: number | null | undefined
+  targetArmorLevel: string | number | null | undefined
 ) {
-  if (!targetArmorLevel) {
+  const target = decodeEquipmentTarget(targetArmorLevel);
+
+  if (!target) {
     return null;
   }
 
-  const targetStats = readArmorMainStatsForEnhancementLevel(targetArmorLevel);
+  const targetStats = calculateArmorMainStatsForTarget(target);
 
   if (!targetStats) {
     return null;
@@ -338,7 +360,11 @@ function readTargetArmorMainStats(
   );
   const isAlreadyAllTarget =
     armorPieces.length > 0 &&
-    armorPieces.every((piece) => piece.enhancementLevel === targetArmorLevel);
+    armorPieces.every((piece) => {
+      const current = createCurrentEquipmentTarget(piece);
+
+      return current && encodeEquipmentTarget(current) === encodeEquipmentTarget(target);
+    });
 
   return isAlreadyAllTarget ? null : targetStats;
 }

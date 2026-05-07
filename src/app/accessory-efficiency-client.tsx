@@ -2,12 +2,11 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { ARMOR_ENHANCEMENT_LEVELS } from "@/lib/domain/armor";
-import { WEAPON_ENHANCEMENT_LEVELS } from "@/lib/domain/weapon";
 
 type AccessoryType = "necklace" | "earring" | "ring";
 type AccessorySlot = "necklace" | "earring1" | "earring2" | "ring1" | "ring2";
 type ArmorSlot = "helmet" | "armor" | "pants" | "gloves" | "shoulder";
+type EquipmentSystem = "kazeros" | "shadow" | "unknown";
 type OptionGrade = "상" | "중" | "하";
 type SearchOptionGrade = "선택" | OptionGrade;
 type ResultViewMode = "card" | "table";
@@ -16,13 +15,14 @@ type TradeCountFilter = "0" | "1" | "2";
 type SortDirection = "asc" | "desc";
 type SearchMode = "optionTarget" | "priceTarget";
 type ScoringMode = "dealer" | "support";
+type MetricMode = "lopec" | "combatPower";
 type GraphMode = "priceScore" | "efficiencyScore";
 type ThemeMode = "light" | "dark";
 type ApiKeyStatus = "idle" | "checking" | "valid" | "invalid";
 type TableSortKey = "price" | "tradeCount" | "stat" | "deltaScore" | "goldPerScore" | "efficiency";
 type GuideStepId = 1 | 2 | 3 | 4;
-type TargetWeaponLevel = "current" | `${number}`;
-type TargetArmorLevel = "current" | `${number}`;
+type TargetWeaponLevel = string;
+type TargetArmorLevel = string;
 type EffectOption =
   | "additionalDamage"
   | "enemyDamage"
@@ -60,6 +60,12 @@ interface AccessoryStats {
   health: number;
 }
 
+interface EquipmentTarget {
+  system: EquipmentSystem;
+  enhancementLevel: number;
+  highReforgeLevel: number | null;
+}
+
 interface AccessorySummary {
   slot: string;
   type: AccessoryType;
@@ -83,7 +89,11 @@ interface CharacterSummary {
   imageUrl?: string | null;
   weapon?: {
     name: string | null;
+    grade: string | null;
     enhancementLevel: number | null;
+    highReforgeLevel: number | null;
+    equipmentSystem: EquipmentSystem;
+    itemLevel: number | null;
     attack: number;
     quality: number;
   };
@@ -94,7 +104,11 @@ interface CharacterSummary {
         name: string | null;
         grade: string | null;
         enhancementLevel: number | null;
+        highReforgeLevel: number | null;
+        equipmentSystem: EquipmentSystem;
+        itemLevel: number | null;
         mainStat: number;
+        health: number;
         quality: number;
       } | null
     >;
@@ -167,6 +181,7 @@ interface EvaluationResult {
   };
   replacedSlot: string;
   replacedAccessory: AccessorySummary;
+  metrics?: EvaluationMetricSet;
   baseScore: number;
   nextScore: number;
   deltaScore: number;
@@ -183,11 +198,13 @@ interface EvaluationCombinationReplacement {
   replacedSlot: AccessorySlot;
   replacedAccessory: AccessorySummary;
   buyPrice: number;
+  metrics?: EvaluationMetricSet;
   deltaScore: number;
 }
 
 interface EvaluationCombinationResult {
   replacements: EvaluationCombinationReplacement[];
+  metrics?: EvaluationMetricSet;
   baseScore: number;
   nextScore: number;
   deltaScore: number;
@@ -196,6 +213,19 @@ interface EvaluationCombinationResult {
   scorePerGold: number;
   goldPerScore: number;
 }
+
+interface EvaluationMetric {
+  baseScore: number;
+  nextScore: number;
+  deltaScore: number;
+  candidateEfficiency: number;
+  replacedEfficiency: number;
+  deltaEfficiency: number;
+  scorePerGold: number;
+  goldPerScore: number;
+}
+
+type EvaluationMetricSet = Record<MetricMode, EvaluationMetric>;
 
 interface GraphItem {
   id: string;
@@ -444,6 +474,7 @@ export default function AccessoryEfficiencyClient() {
   const [maxPrice, setMaxPrice] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("optionTarget");
   const [scoringMode, setScoringMode] = useState<ScoringMode>("dealer");
+  const [metricMode, setMetricMode] = useState<MetricMode>("lopec");
   const [targetWeaponLevel, setTargetWeaponLevel] = useState<TargetWeaponLevel>("current");
   const [targetArmorLevel, setTargetArmorLevel] = useState<TargetArmorLevel>("current");
   const [targetSlots, setTargetSlots] = useState<AccessorySlot[]>(ACCESSORY_SLOT_ORDER);
@@ -587,12 +618,15 @@ export default function AccessoryEfficiencyClient() {
     [response?.data?.combinationResults]
   );
   const positiveResultCount = useMemo(
-    () => allResults.filter((result) => result.deltaScore > 0).length,
-    [allResults]
+    () => allResults.filter((result) => readResultMetric(result, metricMode).deltaScore > 0).length,
+    [allResults, metricMode]
   );
   const positiveCombinationCount = useMemo(
-    () => allCombinationResults.filter((result) => result.deltaScore > 0).length,
-    [allCombinationResults]
+    () =>
+      allCombinationResults.filter(
+        (result) => readResultMetric(result, metricMode).deltaScore > 0
+      ).length,
+    [allCombinationResults, metricMode]
   );
   const minDeltaScoreThreshold = useMemo(
     () => parseNullableDecimalInput(minDeltaScoreFilter),
@@ -601,22 +635,26 @@ export default function AccessoryEfficiencyClient() {
   const displayResults = useMemo(
     () =>
       allResults.filter((result) => {
-        if (showPositiveOnly && result.deltaScore <= 0) {
+        const metric = readResultMetric(result, metricMode);
+
+        if (showPositiveOnly && metric.deltaScore <= 0) {
           return false;
         }
 
         return result.candidate.tradeAllowCount >= Number(tradeCountFilter);
       }),
-    [allResults, showPositiveOnly, tradeCountFilter]
+    [allResults, metricMode, showPositiveOnly, tradeCountFilter]
   );
   const displayCombinationResults = useMemo(
     () =>
       allCombinationResults.filter((result) => {
-        if (showPositiveOnly && result.deltaScore <= 0) {
+        const metric = readResultMetric(result, metricMode);
+
+        if (showPositiveOnly && metric.deltaScore <= 0) {
           return false;
         }
 
-        if (minDeltaScoreThreshold !== null && result.deltaScore < minDeltaScoreThreshold) {
+        if (minDeltaScoreThreshold !== null && metric.deltaScore < minDeltaScoreThreshold) {
           return false;
         }
 
@@ -624,23 +662,41 @@ export default function AccessoryEfficiencyClient() {
           (replacement) => replacement.candidate.tradeAllowCount >= Number(tradeCountFilter)
         );
       }),
-    [allCombinationResults, minDeltaScoreThreshold, showPositiveOnly, tradeCountFilter]
+    [
+      allCombinationResults,
+      metricMode,
+      minDeltaScoreThreshold,
+      showPositiveOnly,
+      tradeCountFilter
+    ]
   );
   const tradeCountFilterLabel =
     TRADE_COUNT_OPTIONS.find((option) => option.value === tradeCountFilter)?.label ?? "";
   const sortedDisplayResults = useMemo(
     () =>
       resultViewMode === "card"
-        ? sortCardResults(displayResults, cardSortMode)
-        : sortTableResults(displayResults, tableSort.key, tableSort.direction),
-    [cardSortMode, displayResults, resultViewMode, tableSort.direction, tableSort.key]
+        ? sortCardResults(displayResults, cardSortMode, metricMode)
+        : sortTableResults(displayResults, tableSort.key, tableSort.direction, metricMode),
+    [cardSortMode, displayResults, metricMode, resultViewMode, tableSort.direction, tableSort.key]
   );
   const sortedCombinationResults = useMemo(
     () =>
       resultViewMode === "card"
-        ? sortCombinationCardResults(displayCombinationResults, cardSortMode)
-        : sortCombinationTableResults(displayCombinationResults, tableSort.key, tableSort.direction),
-    [cardSortMode, displayCombinationResults, resultViewMode, tableSort.direction, tableSort.key]
+        ? sortCombinationCardResults(displayCombinationResults, cardSortMode, metricMode)
+        : sortCombinationTableResults(
+            displayCombinationResults,
+            tableSort.key,
+            tableSort.direction,
+            metricMode
+          ),
+    [
+      cardSortMode,
+      displayCombinationResults,
+      metricMode,
+      resultViewMode,
+      tableSort.direction,
+      tableSort.key
+    ]
   );
   const activeResultCount =
     searchMode === "priceTarget" ? sortedCombinationResults.length : sortedDisplayResults.length;
@@ -670,9 +726,9 @@ export default function AccessoryEfficiencyClient() {
   const graphItems = useMemo(
     () =>
       searchMode === "priceTarget"
-        ? buildCombinationGraphItems(displayCombinationResults)
-        : buildResultGraphItems(displayResults),
-    [displayCombinationResults, displayResults, searchMode]
+        ? buildCombinationGraphItems(displayCombinationResults, metricMode)
+        : buildResultGraphItems(displayResults, metricMode),
+    [displayCombinationResults, displayResults, metricMode, searchMode]
   );
   const currentGuideStep: GuideStepId = useMemo(() => {
     if (!loadedCharacter || isLoadingCharacter) {
@@ -931,10 +987,8 @@ export default function AccessoryEfficiencyClient() {
               ? getExcludedEffectOptions(accessoryType, scoringMode, selectedGrades)
               : [],
           targetSlots: searchMode === "priceTarget" ? targetSlots : undefined,
-          targetWeaponLevel:
-            targetWeaponLevel !== "current" ? Number(targetWeaponLevel) : undefined,
-          targetArmorLevel:
-            targetArmorLevel !== "current" ? Number(targetArmorLevel) : undefined,
+          targetWeaponLevel: targetWeaponLevel !== "current" ? targetWeaponLevel : undefined,
+          targetArmorLevel: targetArmorLevel !== "current" ? targetArmorLevel : undefined,
           searchMode,
           scoringMode,
           progressId,
@@ -1209,6 +1263,18 @@ export default function AccessoryEfficiencyClient() {
                     value={scoringMode}
                     onChange={changeScoringMode}
                   />
+                  <label className="metricModeCheckbox">
+                    <input
+                      type="checkbox"
+                      checked={metricMode === "combatPower"}
+                      disabled={!loadedCharacter || isSearching}
+                      onChange={(event) => {
+                        setMetricMode(event.target.checked ? "combatPower" : "lopec");
+                        setResultPage(1);
+                      }}
+                    />
+                    인게임 전투력 기준
+                  </label>
                 </div>
                 <p>
                   {searchMode === "optionTarget"
@@ -1311,11 +1377,9 @@ export default function AccessoryEfficiencyClient() {
                   }
                 >
                   <option value="current">{formatCurrentWeaponLevel(loadedCharacter)}</option>
-                  {WEAPON_ENHANCEMENT_LEVELS.filter(
-                    (level) => level !== loadedCharacter?.weapon?.enhancementLevel
-                  ).map((level) => (
-                    <option key={level} value={String(level)}>
-                      +{level}
+                  {readSelectableWeaponTargets(loadedCharacter).map((target) => (
+                    <option key={encodeEquipmentTarget(target)} value={encodeEquipmentTarget(target)}>
+                      {formatEquipmentTargetLabel(target)}
                     </option>
                   ))}
                 </select>
@@ -1331,9 +1395,9 @@ export default function AccessoryEfficiencyClient() {
                   }
                 >
                   <option value="current">현재 상태 그대로</option>
-                  {readSelectableArmorLevels(loadedCharacter).map((level) => (
-                    <option key={level} value={String(level)}>
-                      올 +{level}
+                  {readSelectableArmorTargets(loadedCharacter).map((target) => (
+                    <option key={encodeEquipmentTarget(target)} value={encodeEquipmentTarget(target)}>
+                      {formatArmorTargetLabel(target)}
                     </option>
                   ))}
                 </select>
@@ -1376,7 +1440,7 @@ export default function AccessoryEfficiencyClient() {
                 ) : null}
                 <p className="searchModeHint">
                   바꾸고 싶은 장착 악세서리를 체크하고, 목표 가격에 쓸 수 있는 총 골드를 입력하세요.
-                  그 예산 안에서 점수가 가장 많이 오르는 조합을 찾아줍니다.
+                  그 예산 안에서 {readMetricName(metricMode)}이 가장 많이 오르는 조합을 찾아줍니다.
                 </p>
               </>
             ) : null}
@@ -1424,7 +1488,7 @@ export default function AccessoryEfficiencyClient() {
                           setResultPage(1);
                         }}
                       />
-                      점수 상승되는 것만 보기
+                      {readMetricName(metricMode)} 상승되는 것만 보기
                     </label>
                     <label className="tradeCountControl">
                       <span>거래 가능</span>
@@ -1444,7 +1508,7 @@ export default function AccessoryEfficiencyClient() {
                     </label>
                     {searchMode === "priceTarget" ? (
                       <label className="scoreFilterControl">
-                        <span>점수 상승 최소</span>
+                        <span>{readMetricName(metricMode)} 상승 최소</span>
                         <input
                           inputMode="decimal"
                           placeholder="제한 없음"
@@ -1468,7 +1532,7 @@ export default function AccessoryEfficiencyClient() {
                         >
                           {CARD_SORT_OPTIONS.map((option) => (
                             <option key={option.value} value={option.value}>
-                              {option.label}
+                              {readCardSortLabel(option.value, metricMode)}
                             </option>
                           ))}
                         </select>
@@ -1496,7 +1560,7 @@ export default function AccessoryEfficiencyClient() {
                       </button>
                       {graphItems.length === 0 ? (
                         <small className="graphDisabledHint">
-                          점수 상승 후보가 있을 때 그래프를 볼 수 있습니다.
+                          {readMetricName(metricMode)} 상승 후보가 있을 때 그래프를 볼 수 있습니다.
                         </small>
                       ) : null}
                     </div>
@@ -1535,11 +1599,12 @@ export default function AccessoryEfficiencyClient() {
                           {visibleCombinationResults.map((result) => (
                             <CombinationCard
                               key={combinationKey(result)}
-                            result={result}
-                            resultId={combinationKey(result)}
-                            isFocused={focusedResultId === combinationKey(result)}
-                            scoringMode={scoringMode}
-                          />
+                              result={result}
+                              resultId={combinationKey(result)}
+                              isFocused={focusedResultId === combinationKey(result)}
+                              metricMode={metricMode}
+                              scoringMode={scoringMode}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -1550,6 +1615,7 @@ export default function AccessoryEfficiencyClient() {
                           results={visibleCombinationResults}
                           sortDirection={tableSort.direction}
                           sortKey={tableSort.key}
+                          metricMode={metricMode}
                           scoringMode={scoringMode}
                           onSort={changeTableSort}
                         />
@@ -1567,8 +1633,8 @@ export default function AccessoryEfficiencyClient() {
                       <h2>검색 결과 없음</h2>
                       <p>
                         {isDeltaScoreFiltered
-                          ? "점수 상승 최소 조건을 만족하는 조합이 없습니다."
-                          : "목표 가격 이하에서 선택 슬롯의 점수가 상승하는 조합이 없습니다."}
+                          ? `${readMetricName(metricMode)} 상승 최소 조건을 만족하는 조합이 없습니다.`
+                          : `목표 가격 이하에서 선택 슬롯의 ${readMetricName(metricMode)}이 상승하는 조합이 없습니다.`}
                       </p>
                     </div>
                   )
@@ -1582,6 +1648,7 @@ export default function AccessoryEfficiencyClient() {
                             result={result}
                             resultId={resultKey(result)}
                             isFocused={focusedResultId === resultKey(result)}
+                            metricMode={metricMode}
                             scoringMode={scoringMode}
                           />
                         ))}
@@ -1594,6 +1661,7 @@ export default function AccessoryEfficiencyClient() {
                         results={visibleResults}
                         sortDirection={tableSort.direction}
                         sortKey={tableSort.key}
+                        metricMode={metricMode}
                         scoringMode={scoringMode}
                         onSort={changeTableSort}
                       />
@@ -1611,7 +1679,7 @@ export default function AccessoryEfficiencyClient() {
                     <h2>검색 결과 없음</h2>
                     <p>
                       {showPositiveOnly
-                        ? "현재 조건에서 점수가 상승하는 후보가 없습니다."
+                        ? `현재 조건에서 ${readMetricName(metricMode)}이 상승하는 후보가 없습니다.`
                         : "선택한 상/중/하 조합에 맞는 즉시 구매 매물이 없거나 조건이 너무 좁습니다."}
                     </p>
                   </div>
@@ -1630,6 +1698,7 @@ export default function AccessoryEfficiencyClient() {
       {isGraphOpen ? (
         <GraphModal
           items={graphItems}
+          metricMode={metricMode}
           mode={graphMode}
           onClose={() => setIsGraphOpen(false)}
           onModeChange={setGraphMode}
@@ -2060,12 +2129,14 @@ function SearchProgressIndicator({
 
 function GraphModal({
   items,
+  metricMode,
   mode,
   onModeChange,
   onPointSelect,
   onClose
 }: {
   items: GraphItem[];
+  metricMode: MetricMode;
   mode: GraphMode;
   onModeChange: (mode: GraphMode) => void;
   onPointSelect: (itemId: string) => void;
@@ -2079,7 +2150,9 @@ function GraphModal({
     () => parseGraphRangeInput(rangeInput, autoRange),
     [autoRange, rangeInput]
   );
-  const xAxisLabel = mode === "priceScore" ? "총 가격" : "1점당 골드";
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
+  const xAxisLabel = mode === "priceScore" ? "총 가격" : goldPerMetricLabel;
 
   useEffect(() => {
     setRangeInput(formatGraphRangeInput(autoRange));
@@ -2119,7 +2192,7 @@ function GraphModal({
               key={option.value}
               onClick={() => onModeChange(option.value)}
             >
-              {option.label}
+              {readGraphModeLabel(option.value, metricMode)}
             </button>
           ))}
         </div>
@@ -2142,7 +2215,7 @@ function GraphModal({
             />
           </label>
           <label>
-            <span>점수 최소</span>
+            <span>{metricName} 최소</span>
             <input
               inputMode="decimal"
               value={rangeInput.yMin}
@@ -2150,7 +2223,7 @@ function GraphModal({
             />
           </label>
           <label>
-            <span>점수 최대</span>
+            <span>{metricName} 최대</span>
             <input
               inputMode="decimal"
               value={rangeInput.yMax}
@@ -2168,6 +2241,7 @@ function GraphModal({
 
         <ResultScatterPlot
           items={items}
+          metricMode={metricMode}
           mode={mode}
           range={selectedRange}
           onPointSelect={onPointSelect}
@@ -2179,11 +2253,13 @@ function GraphModal({
 
 function ResultScatterPlot({
   items,
+  metricMode,
   mode,
   range,
   onPointSelect
 }: {
   items: GraphItem[];
+  metricMode: MetricMode;
   mode: GraphMode;
   range: GraphRangeSelection;
   onPointSelect: (itemId: string) => void;
@@ -2247,6 +2323,8 @@ function ResultScatterPlot({
   const hoverYLabelY = hoveredPoint
     ? clamp(hoveredPoint.y - 11, margin.top, margin.top + plotHeight - 22)
     : 0;
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
 
   if (visibleItems.length === 0) {
     return (
@@ -2260,7 +2338,11 @@ function ResultScatterPlot({
   return (
     <div className="graphBody">
       <svg
-        aria-label={mode === "priceScore" ? "총 가격과 점수 상승량 그래프" : "1점당 골드와 점수 상승량 그래프"}
+        aria-label={
+          mode === "priceScore"
+            ? `총 가격과 ${metricName} 상승량 그래프`
+            : `${goldPerMetricLabel}와 ${metricName} 상승량 그래프`
+        }
         className="scatterPlot"
         viewBox={`0 0 ${width} ${height}`}
         role="group"
@@ -2373,8 +2455,8 @@ function ResultScatterPlot({
               point.item.slotLabel,
               `거래 가능 ${point.item.tradeCount}회`,
               `가격 ${formatNumber(point.item.price)}골드`,
-              `점수 +${formatNumber(point.item.deltaScore)}`,
-              `1점당 ${formatInteger(point.item.goldPerScore)}골드`,
+              `${metricName} +${formatNumber(point.item.deltaScore)}`,
+              `${goldPerMetricLabel} ${formatInteger(point.item.goldPerScore)}골드`,
               point.item.details
             ].join(", ")}
             onFocus={() => setHoveredPointId(point.item.id)}
@@ -2409,7 +2491,7 @@ function ResultScatterPlot({
         ))}
 
         <text x={margin.left + plotWidth / 2} y={height - 8} className="axisLabel" textAnchor="middle">
-          {mode === "priceScore" ? "총 가격" : "1점당 골드"}
+          {mode === "priceScore" ? "총 가격" : goldPerMetricLabel}
         </text>
         <text
           x={18}
@@ -2418,14 +2500,14 @@ function ResultScatterPlot({
           textAnchor="middle"
           transform={`rotate(-90 18 ${margin.top + plotHeight / 2})`}
         >
-          점수 상승량
+          {metricName} 상승량
         </text>
       </svg>
       <div className="graphLegend">
         <span className="legendItem"><i className="legendDot trade0" />0회 가능</span>
         <span className="legendItem"><i className="legendDot trade1" />1회 가능</span>
         <span className="legendItem"><i className="legendDot trade2" />2회 가능</span>
-        <span>선: 더 싸거나 효율 좋은 후보 중 점수 고점 경계</span>
+        <span>선: 더 싸거나 효율 좋은 후보 중 {metricName} 고점 경계</span>
       </div>
     </div>
   );
@@ -2527,14 +2609,19 @@ function ResultCard({
   result,
   resultId,
   isFocused,
+  metricMode,
   scoringMode
 }: {
   result: EvaluationResult;
   resultId: string;
   isFocused: boolean;
+  metricMode: MetricMode;
   scoringMode: ScoringMode;
 }) {
-  const isPositive = result.deltaScore > 0;
+  const metric = readResultMetric(result, metricMode);
+  const isPositive = metric.deltaScore > 0;
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
 
   return (
     <article
@@ -2577,17 +2664,17 @@ function ResultCard({
 
       <div className="metricGrid">
         <Metric
-          label="점수 상승"
-          value={`${isPositive ? "+" : ""}${formatNumber(result.deltaScore)}`}
+          label={`${metricName} 상승`}
+          value={`${isPositive ? "+" : ""}${formatNumber(metric.deltaScore)}`}
           tone={isPositive ? "positive" : "negative"}
         />
-        <Metric label="1점당 골드" value={formatInteger(result.goldPerScore)} />
+        <Metric label={goldPerMetricLabel} value={formatInteger(metric.goldPerScore)} />
         <Metric
           label="증가율"
-          value={`${result.deltaEfficiency > 0 ? "+" : ""}${formatNumber(
-            result.deltaEfficiency
+          value={`${metric.deltaEfficiency > 0 ? "+" : ""}${formatNumber(
+            metric.deltaEfficiency
           )}%`}
-          tone={result.deltaEfficiency > 0 ? "positive" : "negative"}
+          tone={metric.deltaEfficiency > 0 ? "positive" : "negative"}
         />
       </div>
     </article>
@@ -2598,14 +2685,19 @@ function CombinationCard({
   result,
   resultId,
   isFocused,
+  metricMode,
   scoringMode
 }: {
   result: EvaluationCombinationResult;
   resultId: string;
   isFocused: boolean;
+  metricMode: MetricMode;
   scoringMode: ScoringMode;
 }) {
-  const isPositive = result.deltaScore > 0;
+  const metric = readResultMetric(result, metricMode);
+  const isPositive = metric.deltaScore > 0;
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
 
   return (
     <article
@@ -2662,17 +2754,17 @@ function CombinationCard({
 
       <div className="metricGrid">
         <Metric
-          label="점수 상승"
-          value={`${isPositive ? "+" : ""}${formatNumber(result.deltaScore)}`}
+          label={`${metricName} 상승`}
+          value={`${isPositive ? "+" : ""}${formatNumber(metric.deltaScore)}`}
           tone={isPositive ? "positive" : "negative"}
         />
-        <Metric label="1점당 골드" value={formatInteger(result.goldPerScore)} />
+        <Metric label={goldPerMetricLabel} value={formatInteger(metric.goldPerScore)} />
         <Metric
           label="증가율"
-          value={`${result.deltaEfficiency > 0 ? "+" : ""}${formatNumber(
-            result.deltaEfficiency
+          value={`${metric.deltaEfficiency > 0 ? "+" : ""}${formatNumber(
+            metric.deltaEfficiency
           )}%`}
-          tone={result.deltaEfficiency > 0 ? "positive" : "negative"}
+          tone={metric.deltaEfficiency > 0 ? "positive" : "negative"}
         />
       </div>
     </article>
@@ -2686,6 +2778,7 @@ function ResultTable({
   pageSize,
   sortKey,
   sortDirection,
+  metricMode,
   scoringMode,
   onSort
 }: {
@@ -2695,9 +2788,13 @@ function ResultTable({
   pageSize: number;
   sortKey: TableSortKey;
   sortDirection: SortDirection;
+  metricMode: MetricMode;
   scoringMode: ScoringMode;
   onSort: (key: TableSortKey) => void;
 }) {
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
+
   return (
     <div className="resultTableWrap">
       <table className="resultTable">
@@ -2737,7 +2834,7 @@ function ResultTable({
               <SortableHeader
                 activeKey={sortKey}
                 direction={sortDirection}
-                label="점수 상승"
+                label={`${metricName} 상승`}
                 sortKey="deltaScore"
                 onSort={onSort}
               />
@@ -2746,7 +2843,7 @@ function ResultTable({
               <SortableHeader
                 activeKey={sortKey}
                 direction={sortDirection}
-                label="1점당 골드"
+                label={goldPerMetricLabel}
                 sortKey="goldPerScore"
                 onSort={onSort}
               />
@@ -2765,7 +2862,8 @@ function ResultTable({
         <tbody>
           {results.map((result, index) => {
             const rank = (page - 1) * pageSize + index + 1;
-            const isPositive = result.deltaScore > 0;
+            const metric = readResultMetric(result, metricMode);
+            const isPositive = metric.deltaScore > 0;
             const rowId = resultKey(result);
 
             return (
@@ -2808,19 +2906,19 @@ function ResultTable({
                 <td>
                   <strong className={isPositive ? "positive" : "negative"}>
                     {isPositive ? "+" : ""}
-                    {formatNumber(result.deltaScore)}
+                    {formatNumber(metric.deltaScore)}
                   </strong>
-                  <small>{formatNumber(result.baseScore)} → {formatNumber(result.nextScore)}</small>
+                  <small>{formatNumber(metric.baseScore)} → {formatNumber(metric.nextScore)}</small>
                 </td>
                 <td>
-                  <strong>{formatInteger(result.goldPerScore)}</strong>
-                  <small>골드/점</small>
+                  <strong>{formatInteger(metric.goldPerScore)}</strong>
+                  <small>{metricMode === "combatPower" ? "골드/전투력" : "골드/점"}</small>
                 </td>
                 <td>
-                  <strong>{formatNumber(result.candidateEfficiency)}%</strong>
-                  <small className={result.deltaEfficiency > 0 ? "positive" : "negative"}>
-                    {result.deltaEfficiency > 0 ? "+" : ""}
-                    {formatNumber(result.deltaEfficiency)}%
+                  <strong>{formatNumber(metric.candidateEfficiency)}%</strong>
+                  <small className={metric.deltaEfficiency > 0 ? "positive" : "negative"}>
+                    {metric.deltaEfficiency > 0 ? "+" : ""}
+                    {formatNumber(metric.deltaEfficiency)}%
                   </small>
                 </td>
               </tr>
@@ -2839,6 +2937,7 @@ function CombinationTable({
   pageSize,
   sortKey,
   sortDirection,
+  metricMode,
   scoringMode,
   onSort
 }: {
@@ -2848,9 +2947,13 @@ function CombinationTable({
   pageSize: number;
   sortKey: TableSortKey;
   sortDirection: SortDirection;
+  metricMode: MetricMode;
   scoringMode: ScoringMode;
   onSort: (key: TableSortKey) => void;
 }) {
+  const metricName = readMetricName(metricMode);
+  const goldPerMetricLabel = readGoldPerMetricLabel(metricMode);
+
   return (
     <div className="resultTableWrap">
       <table className="resultTable combinationTable">
@@ -2871,7 +2974,7 @@ function CombinationTable({
               <SortableHeader
                 activeKey={sortKey}
                 direction={sortDirection}
-                label="점수 상승"
+                label={`${metricName} 상승`}
                 sortKey="deltaScore"
                 onSort={onSort}
               />
@@ -2880,7 +2983,7 @@ function CombinationTable({
               <SortableHeader
                 activeKey={sortKey}
                 direction={sortDirection}
-                label="1점당 골드"
+                label={goldPerMetricLabel}
                 sortKey="goldPerScore"
                 onSort={onSort}
               />
@@ -2899,7 +3002,8 @@ function CombinationTable({
         <tbody>
           {results.map((result, index) => {
             const rank = (page - 1) * pageSize + index + 1;
-            const isPositive = result.deltaScore > 0;
+            const metric = readResultMetric(result, metricMode);
+            const isPositive = metric.deltaScore > 0;
             const rowId = combinationKey(result);
 
             return (
@@ -2935,9 +3039,11 @@ function CombinationTable({
                           <strong>{replacement.candidate.tradeAllowCount}회</strong>
                           <small>거래 가능</small>
                         </div>
-                        <div className="combinationDetailMetric">
-                          <strong>{formatNumber(readMainStat(replacement.candidate.stats))}</strong>
-                          <small>주 스탯</small>
+                        <div className="combinationDetailMetric combinationDetailStat">
+                          <StatLine
+                            stats={replacement.candidate.stats}
+                            type={replacement.replacedAccessory.type}
+                          />
                         </div>
                         <div className="combinationDetailOptions">
                           <RefinementOptionList
@@ -2958,19 +3064,19 @@ function CombinationTable({
                 <td>
                   <strong className={isPositive ? "positive" : "negative"}>
                     {isPositive ? "+" : ""}
-                    {formatNumber(result.deltaScore)}
+                    {formatNumber(metric.deltaScore)}
                   </strong>
-                  <small>{formatNumber(result.baseScore)} → {formatNumber(result.nextScore)}</small>
+                  <small>{formatNumber(metric.baseScore)} → {formatNumber(metric.nextScore)}</small>
                 </td>
                 <td>
-                  <strong>{formatInteger(result.goldPerScore)}</strong>
-                  <small>골드/점</small>
+                  <strong>{formatInteger(metric.goldPerScore)}</strong>
+                  <small>{metricMode === "combatPower" ? "골드/전투력" : "골드/점"}</small>
                 </td>
                 <td>
-                  <strong>{formatNumber(result.deltaEfficiency)}%</strong>
-                  <small className={result.deltaEfficiency > 0 ? "positive" : "negative"}>
-                    {result.deltaEfficiency > 0 ? "+" : ""}
-                    {formatNumber(result.deltaEfficiency)}%
+                  <strong>{formatNumber(metric.deltaEfficiency)}%</strong>
+                  <small className={metric.deltaEfficiency > 0 ? "positive" : "negative"}>
+                    {metric.deltaEfficiency > 0 ? "+" : ""}
+                    {formatNumber(metric.deltaEfficiency)}%
                   </small>
                 </td>
               </tr>
@@ -3194,6 +3300,52 @@ function formatApiKeySuccessMessage(): string {
   return "개인 API 키 사용 가능";
 }
 
+function readMetricName(metricMode: MetricMode): string {
+  return metricMode === "combatPower" ? "전투력" : "점수";
+}
+
+function readGoldPerMetricLabel(metricMode: MetricMode): string {
+  return metricMode === "combatPower" ? "전투력당 골드" : "1점당 골드";
+}
+
+function readCardSortLabel(sortMode: CardSortMode, metricMode: MetricMode): string {
+  if (sortMode === "goldPerScoreAsc") {
+    return `${readGoldPerMetricLabel(metricMode)} 낮은 순`;
+  }
+
+  if (sortMode === "deltaScoreDesc") {
+    return `${readMetricName(metricMode)} 상승량 높은 순`;
+  }
+
+  return "가격 낮은 순";
+}
+
+function readGraphModeLabel(mode: GraphMode, metricMode: MetricMode): string {
+  return mode === "priceScore"
+    ? `가격 / ${readMetricName(metricMode)}`
+    : `효율 / ${readMetricName(metricMode)}`;
+}
+
+function readResultMetric(
+  result: EvaluationResult | EvaluationCombinationResult,
+  metricMode: MetricMode
+): EvaluationMetric {
+  return (
+    result.metrics?.[metricMode] ?? {
+      baseScore: result.baseScore,
+      nextScore: result.nextScore,
+      deltaScore: result.deltaScore,
+      candidateEfficiency:
+        "candidateEfficiency" in result ? result.candidateEfficiency : result.deltaEfficiency,
+      replacedEfficiency:
+        "replacedEfficiency" in result ? result.replacedEfficiency : 0,
+      deltaEfficiency: result.deltaEfficiency,
+      scorePerGold: result.scorePerGold,
+      goldPerScore: result.goldPerScore
+    }
+  );
+}
+
 function formatVerificationStatusText(
   status: LopecVerificationStatus | null,
   isRunning: boolean,
@@ -3276,27 +3428,34 @@ function buildPaginationItems(currentPage: number, totalPages: number): Array<nu
   return items;
 }
 
-function sortCardResults(results: EvaluationResult[], sortMode: CardSortMode): EvaluationResult[] {
+function sortCardResults(
+  results: EvaluationResult[],
+  sortMode: CardSortMode,
+  metricMode: MetricMode
+): EvaluationResult[] {
   return [...results].sort((a, b) => {
+    const aMetric = readResultMetric(a, metricMode);
+    const bMetric = readResultMetric(b, metricMode);
+
     if (sortMode === "priceAsc") {
       return (
         compareNumberAsc(a.buyPrice, b.buyPrice) ||
-        compareNumberDesc(a.deltaScore, b.deltaScore) ||
-        compareNumberAsc(a.goldPerScore, b.goldPerScore)
+        compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
+        compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore)
       );
     }
 
     if (sortMode === "deltaScoreDesc") {
       return (
-        compareNumberDesc(a.deltaScore, b.deltaScore) ||
-        compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
+        compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
+        compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
         compareNumberAsc(a.buyPrice, b.buyPrice)
       );
     }
 
     return (
-      compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
-      compareNumberDesc(a.deltaScore, b.deltaScore) ||
+      compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
+      compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
       compareNumberAsc(a.buyPrice, b.buyPrice)
     );
   });
@@ -3305,18 +3464,27 @@ function sortCardResults(results: EvaluationResult[], sortMode: CardSortMode): E
 function sortTableResults(
   results: EvaluationResult[],
   sortKey: TableSortKey,
-  direction: SortDirection
+  direction: SortDirection,
+  metricMode: MetricMode
 ): EvaluationResult[] {
   return [...results].sort((a, b) => {
+    const aMetric = readResultMetric(a, metricMode);
+    const bMetric = readResultMetric(b, metricMode);
     const comparison =
       direction === "asc"
-        ? compareNumberAsc(readTableSortValue(a, sortKey), readTableSortValue(b, sortKey))
-        : compareNumberDesc(readTableSortValue(a, sortKey), readTableSortValue(b, sortKey));
+        ? compareNumberAsc(
+            readTableSortValue(a, sortKey, metricMode),
+            readTableSortValue(b, sortKey, metricMode)
+          )
+        : compareNumberDesc(
+            readTableSortValue(a, sortKey, metricMode),
+            readTableSortValue(b, sortKey, metricMode)
+          );
 
     return (
       comparison ||
-      compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
-      compareNumberDesc(a.deltaScore, b.deltaScore) ||
+      compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
+      compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
       compareNumberAsc(a.buyPrice, b.buyPrice)
     );
   });
@@ -3324,28 +3492,32 @@ function sortTableResults(
 
 function sortCombinationCardResults(
   results: EvaluationCombinationResult[],
-  sortMode: CardSortMode
+  sortMode: CardSortMode,
+  metricMode: MetricMode
 ): EvaluationCombinationResult[] {
   return [...results].sort((a, b) => {
+    const aMetric = readResultMetric(a, metricMode);
+    const bMetric = readResultMetric(b, metricMode);
+
     if (sortMode === "priceAsc") {
       return (
         compareNumberAsc(a.buyPrice, b.buyPrice) ||
-        compareNumberDesc(a.deltaScore, b.deltaScore) ||
-        compareNumberAsc(a.goldPerScore, b.goldPerScore)
+        compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
+        compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore)
       );
     }
 
     if (sortMode === "deltaScoreDesc") {
       return (
-        compareNumberDesc(a.deltaScore, b.deltaScore) ||
-        compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
+        compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
+        compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
         compareNumberAsc(a.buyPrice, b.buyPrice)
       );
     }
 
     return (
-      compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
-      compareNumberDesc(a.deltaScore, b.deltaScore) ||
+      compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
+      compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
       compareNumberAsc(a.buyPrice, b.buyPrice)
     );
   });
@@ -3354,30 +3526,39 @@ function sortCombinationCardResults(
 function sortCombinationTableResults(
   results: EvaluationCombinationResult[],
   sortKey: TableSortKey,
-  direction: SortDirection
+  direction: SortDirection,
+  metricMode: MetricMode
 ): EvaluationCombinationResult[] {
   return [...results].sort((a, b) => {
+    const aMetric = readResultMetric(a, metricMode);
+    const bMetric = readResultMetric(b, metricMode);
     const comparison =
       direction === "asc"
         ? compareNumberAsc(
-            readCombinationSortValue(a, sortKey),
-            readCombinationSortValue(b, sortKey)
+            readCombinationSortValue(a, sortKey, metricMode),
+            readCombinationSortValue(b, sortKey, metricMode)
           )
         : compareNumberDesc(
-            readCombinationSortValue(a, sortKey),
-            readCombinationSortValue(b, sortKey)
+            readCombinationSortValue(a, sortKey, metricMode),
+            readCombinationSortValue(b, sortKey, metricMode)
           );
 
     return (
       comparison ||
-      compareNumberDesc(a.deltaScore, b.deltaScore) ||
-      compareNumberAsc(a.goldPerScore, b.goldPerScore) ||
+      compareNumberDesc(aMetric.deltaScore, bMetric.deltaScore) ||
+      compareNumberAsc(aMetric.goldPerScore, bMetric.goldPerScore) ||
       compareNumberAsc(a.buyPrice, b.buyPrice)
     );
   });
 }
 
-function readTableSortValue(result: EvaluationResult, sortKey: TableSortKey): number {
+function readTableSortValue(
+  result: EvaluationResult,
+  sortKey: TableSortKey,
+  metricMode: MetricMode
+): number {
+  const metric = readResultMetric(result, metricMode);
+
   if (sortKey === "price") {
     return result.buyPrice;
   }
@@ -3391,20 +3572,23 @@ function readTableSortValue(result: EvaluationResult, sortKey: TableSortKey): nu
   }
 
   if (sortKey === "deltaScore") {
-    return result.deltaScore;
+    return metric.deltaScore;
   }
 
   if (sortKey === "efficiency") {
-    return result.deltaEfficiency;
+    return metric.deltaEfficiency;
   }
 
-  return result.goldPerScore;
+  return metric.goldPerScore;
 }
 
 function readCombinationSortValue(
   result: EvaluationCombinationResult,
-  sortKey: TableSortKey
+  sortKey: TableSortKey,
+  metricMode: MetricMode
 ): number {
+  const metric = readResultMetric(result, metricMode);
+
   if (sortKey === "price") {
     return result.buyPrice;
   }
@@ -3418,14 +3602,14 @@ function readCombinationSortValue(
   }
 
   if (sortKey === "deltaScore") {
-    return result.deltaScore;
+    return metric.deltaScore;
   }
 
   if (sortKey === "efficiency") {
-    return result.deltaEfficiency;
+    return metric.deltaEfficiency;
   }
 
-  return result.goldPerScore;
+  return metric.goldPerScore;
 }
 
 function getDefaultTableSortDirection(sortKey: TableSortKey): SortDirection {
@@ -3436,16 +3620,17 @@ function getDefaultTableSortDirection(sortKey: TableSortKey): SortDirection {
   return "desc";
 }
 
-function buildResultGraphItems(results: EvaluationResult[]): GraphItem[] {
+function buildResultGraphItems(results: EvaluationResult[], metricMode: MetricMode): GraphItem[] {
   return results
-    .filter((result) => result.deltaScore > 0 && Number.isFinite(result.goldPerScore))
-    .map((result) => ({
+    .map((result) => ({ result, metric: readResultMetric(result, metricMode) }))
+    .filter(({ metric }) => metric.deltaScore > 0 && Number.isFinite(metric.goldPerScore))
+    .map(({ result, metric }) => ({
       id: resultKey(result),
       label: result.candidate.name,
       slotLabel: replacementSlotLabel(result.replacedSlot),
       price: result.buyPrice,
-      deltaScore: result.deltaScore,
-      goldPerScore: result.goldPerScore,
+      deltaScore: metric.deltaScore,
+      goldPerScore: metric.goldPerScore,
       tradeCount: result.candidate.tradeAllowCount,
       details: formatGradeText({
         effectGrades: result.candidate.effectGrades,
@@ -3454,18 +3639,22 @@ function buildResultGraphItems(results: EvaluationResult[]): GraphItem[] {
     }));
 }
 
-function buildCombinationGraphItems(results: EvaluationCombinationResult[]): GraphItem[] {
+function buildCombinationGraphItems(
+  results: EvaluationCombinationResult[],
+  metricMode: MetricMode
+): GraphItem[] {
   return results
-    .filter((result) => result.deltaScore > 0 && Number.isFinite(result.goldPerScore))
-    .map((result) => ({
+    .map((result) => ({ result, metric: readResultMetric(result, metricMode) }))
+    .filter(({ metric }) => metric.deltaScore > 0 && Number.isFinite(metric.goldPerScore))
+    .map(({ result, metric }) => ({
       id: combinationKey(result),
       label: result.replacements
         .map((replacement) => SLOT_LABELS[replacement.replacedSlot])
         .join(" + "),
       slotLabel: `교체 ${result.replacements.length}개`,
       price: result.buyPrice,
-      deltaScore: result.deltaScore,
-      goldPerScore: result.goldPerScore,
+      deltaScore: metric.deltaScore,
+      goldPerScore: metric.goldPerScore,
       tradeCount: readCombinationTradeCount(result),
       details: [
         `거래 가능 ${formatCombinationTradeCounts(result)}`,
@@ -3774,29 +3963,172 @@ function createProgressId(): string {
 }
 
 function formatCurrentWeaponLevel(character: CharacterSummary | null): string {
-  const level = character?.weapon?.enhancementLevel;
+  const weapon = character?.weapon;
+  const current = weapon ? createCurrentEquipmentTarget(weapon) : null;
 
-  return level ? `현재 +${level}` : "현재";
+  return current ? `현재 ${formatEquipmentTargetLabel(current)}` : "현재";
 }
 
-function readSelectableArmorLevels(character: CharacterSummary | null): number[] {
-  const lowestLevel = character?.armor?.lowestEnhancementLevel;
+function readSelectableWeaponTargets(character: CharacterSummary | null): EquipmentTarget[] {
+  const weapon = character?.weapon;
 
-  if (!lowestLevel) {
-    return [...ARMOR_ENHANCEMENT_LEVELS];
-  }
-
-  return ARMOR_ENHANCEMENT_LEVELS.filter((level) => level >= lowestLevel);
-}
-
-function readArmorEnhancementLevels(character: CharacterSummary | null): number[] {
-  if (!character?.armor?.pieces) {
+  if (!weapon) {
     return [];
   }
 
-  return Object.values(character.armor.pieces)
-    .map((piece) => piece?.enhancementLevel ?? null)
-    .filter((level): level is number => typeof level === "number");
+  return readEquipmentTargetOptions(weapon).filter(
+    (target) => encodeEquipmentTarget(target) !== encodeEquipmentTarget(createCurrentEquipmentTarget(weapon))
+  );
+}
+
+function readSelectableArmorTargets(character: CharacterSummary | null): EquipmentTarget[] {
+  const reference = readLowestArmorPiece(character);
+
+  if (!reference) {
+    return [];
+  }
+
+  return readEquipmentTargetOptions(reference).filter((target) => !isArmorAlreadyAtTarget(character, target));
+}
+
+function readLowestArmorPiece(character: CharacterSummary | null) {
+  const pieces = Object.values(character?.armor?.pieces ?? {}).filter(
+    (piece): piece is NonNullable<CharacterSummary["armor"]>["pieces"][ArmorSlot] =>
+      Boolean(piece?.enhancementLevel)
+  );
+
+  return pieces.sort((left, right) => {
+    const leftLevel = readEquipmentTargetItemLevel(createCurrentEquipmentTarget(left));
+    const rightLevel = readEquipmentTargetItemLevel(createCurrentEquipmentTarget(right));
+
+    return leftLevel - rightLevel;
+  })[0] ?? null;
+}
+
+function isArmorAlreadyAtTarget(
+  character: CharacterSummary | null,
+  target: EquipmentTarget
+): boolean {
+  const pieces = Object.values(character?.armor?.pieces ?? {}).filter(Boolean);
+
+  return (
+    pieces.length > 0 &&
+    pieces.every((piece) => encodeEquipmentTarget(createCurrentEquipmentTarget(piece)) === encodeEquipmentTarget(target))
+  );
+}
+
+function createCurrentEquipmentTarget(
+  equipment: {
+    equipmentSystem?: EquipmentSystem;
+    enhancementLevel?: number | null;
+    highReforgeLevel?: number | null;
+  } | null
+): EquipmentTarget | null {
+  if (
+    !equipment ||
+    !equipment.enhancementLevel ||
+    !equipment.equipmentSystem ||
+    equipment.equipmentSystem === "unknown"
+  ) {
+    return null;
+  }
+
+  return {
+    system: equipment.equipmentSystem,
+    enhancementLevel: equipment.enhancementLevel,
+    highReforgeLevel: equipment.highReforgeLevel ?? null
+  };
+}
+
+function readEquipmentTargetOptions(
+  equipment: {
+    equipmentSystem?: EquipmentSystem;
+    enhancementLevel?: number | null;
+    highReforgeLevel?: number | null;
+  }
+): EquipmentTarget[] {
+  const current = createCurrentEquipmentTarget(equipment);
+
+  if (!current) {
+    return [];
+  }
+
+  return Array.from(
+    { length: Math.max(25 - current.enhancementLevel + 1, 0) },
+    (_, index) => ({
+      system: current.system,
+      enhancementLevel: current.enhancementLevel + index,
+      highReforgeLevel: current.system === "kazeros" ? 40 : current.highReforgeLevel
+    })
+  );
+}
+
+function encodeEquipmentTarget(target: EquipmentTarget | null): string {
+  if (!target) {
+    return "current";
+  }
+
+  return `${target.system}:${target.enhancementLevel}:${target.highReforgeLevel ?? "none"}`;
+}
+
+function formatEquipmentTargetLabel(target: EquipmentTarget): string {
+  const itemLevel = readEquipmentTargetItemLevel(target);
+  const shadowEnhancement = readShadowEquivalentEnhancement(target);
+
+  return `${equipmentSystemLabel(target.system)} ${itemLevel}${shadowEnhancement ? ` (+${shadowEnhancement}강)` : ""}`;
+}
+
+function formatArmorTargetLabel(target: EquipmentTarget): string {
+  const itemLevel = readEquipmentTargetItemLevel(target);
+  const shadowEnhancement = readShadowEquivalentEnhancement(target);
+
+  return `${equipmentSystemLabel(target.system)} 올 ${itemLevel}${shadowEnhancement ? ` (+${shadowEnhancement}강)` : ""}`;
+}
+
+function readEquipmentTargetItemLevel(target: EquipmentTarget | null): number {
+  if (!target) {
+    return 0;
+  }
+
+  return target.system === "kazeros"
+    ? 1590 + target.enhancementLevel * 5 + (target.highReforgeLevel ?? 0)
+    : 1675 + target.enhancementLevel * 5;
+}
+
+function readShadowEquivalentEnhancement(target: EquipmentTarget): number | null {
+  if (target.system === "shadow") {
+    return target.enhancementLevel;
+  }
+
+  if (
+    target.system !== "kazeros" ||
+    target.enhancementLevel < 20 ||
+    (target.highReforgeLevel ?? 0) < 40
+  ) {
+    return null;
+  }
+
+  if (target.enhancementLevel === 25) {
+    return 18;
+  }
+
+  if (target.enhancementLevel === 24) {
+    return 16;
+  }
+
+  return target.enhancementLevel - 9;
+}
+
+function equipmentSystemLabel(system: EquipmentSystem): string {
+  if (system === "kazeros") {
+    return "카제로스";
+  }
+
+  if (system === "shadow") {
+    return "그림자";
+  }
+
+  return "장비";
 }
 
 function gradeClassName(grade: OptionGrade): string {

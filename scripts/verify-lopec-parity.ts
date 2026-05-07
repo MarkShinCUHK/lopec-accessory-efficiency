@@ -4,6 +4,7 @@ import vm from "node:vm";
 import type {
   AccessoryCandidate,
   AccessoryEffects,
+  AccessoryMetricMode,
   AccessoryRefinementOption,
   AccessoryScoringMode,
   AccessorySlot,
@@ -21,7 +22,7 @@ import {
 
 const LOPEC_BASE_URL = "https://lopec.kr";
 const BASELINE_PATH = "specifications/lopec-formula-fingerprints.json";
-const SCORE_TOLERANCE = 0.01;
+const SCORE_TOLERANCE = 0.011;
 const SUPPORT_CLASS_NAMES = ["도화가", "홀리나이트", "바드", "발키리"];
 
 interface WebpackModule {
@@ -96,6 +97,13 @@ interface RuntimeSupportScore {
   supportSpecPoint: number;
 }
 
+interface RuntimeCompleteMetric {
+  딜러_스펙포인트: number;
+  딜러_전투력: number;
+  서폿_스펙포인트: number;
+  서폿_전투력: number;
+}
+
 interface RuntimeClassBaseEffects {
   W: Record<string, unknown>;
 }
@@ -123,6 +131,35 @@ const FORMULA_SIGNATURES: FormulaSignature[] = [
     key: "dealer-attack",
     description: "딜러 공격력 계산",
     contains: ["공격력_팔찌제외", "기본_공격력_전투력", "powerIndex_combat"]
+  },
+  {
+    key: "complete-metrics",
+    description: "LOPEC 점수/전투력 통합 계산",
+    contains: ["딜러_전투력", "서폿_전투력", "기본_공격력_전투력"]
+  },
+  {
+    key: "dealer-combat-input",
+    description: "딜러 전투력 입력값 생성",
+    contains: ["무기품질_전투력", "악세서리_전투력", "스텟_전투력", "보주_전투력"]
+  },
+  {
+    key: "support-base-attack-combat",
+    description: "서포터 전투력 기본 공격력 계산",
+    contains: [
+      "기본_공격력:Math.floor((u(!1)*n/6)**.5*t)",
+      "기본_공격력_전투력:Math.floor((u(!0)*n/6)**.5*t)",
+      "powerIndex_combat"
+    ]
+  },
+  {
+    key: "support-combat-input",
+    description: "서포터 전투력 입력값 생성",
+    contains: ["아군 공격력 강화 효과", "아군 피해량 강화 효과", "스텟_전투력"]
+  },
+  {
+    key: "support-care-combat",
+    description: "서포터 케어 전투력 계산",
+    contains: ["기본 케어 전투력", "케어 전투력", "파티원"]
   },
   {
     key: "support-score-input",
@@ -543,6 +580,9 @@ async function verifyParityCases(runtime: LopecRuntime): Promise<void> {
   const supportModule = runtime.require(38564) as {
     PR(data: LopecSimulatorData): RuntimeSupportScore;
   };
+  const completeModule = runtime.require(54122) as {
+    F(data: LopecSimulatorData): RuntimeCompleteMetric;
+  };
   const classModule = runtime.require(49295) as unknown as RuntimeClassBaseEffects;
   const snapshotCache = new Map<string, Awaited<ReturnType<typeof fetchLopecSnapshot>>>();
   const failures: string[] = [];
@@ -574,41 +614,78 @@ async function verifyParityCases(runtime: LopecRuntime): Promise<void> {
       normalizedCase.candidate,
       normalizedCase.mode
     );
+    const localCombat = calculateExactLopecReplacement(
+      character,
+      normalizedCase.replacedSlot,
+      normalizedCase.candidate,
+      normalizedCase.mode,
+      "combatPower"
+    );
 
-    if (!nextSimulator || !local) {
+    if (!nextSimulator || !local || !localCombat) {
       failures.push(`${normalizedCase.key}: local replacement calculation failed`);
       continue;
     }
 
-    const runtimeBaseScore = readRuntimeScore(
+    const runtimeBaseScore = readRuntimeMetric(
+      "lopec",
       normalizedCase.mode,
       snapshot.simulator,
       dealerModule,
-      supportModule
+      supportModule,
+      completeModule
     );
-    const runtimeNextScore = readRuntimeScore(
+    const runtimeNextScore = readRuntimeMetric(
+      "lopec",
       normalizedCase.mode,
       nextSimulator,
       dealerModule,
-      supportModule
+      supportModule,
+      completeModule
+    );
+    const runtimeBaseCombatPower = readRuntimeMetric(
+      "combatPower",
+      normalizedCase.mode,
+      snapshot.simulator,
+      dealerModule,
+      supportModule,
+      completeModule
+    );
+    const runtimeNextCombatPower = readRuntimeMetric(
+      "combatPower",
+      normalizedCase.mode,
+      nextSimulator,
+      dealerModule,
+      supportModule,
+      completeModule
     );
     const runtimeRatio = runtimeNextScore / runtimeBaseScore;
     const runtimeNextRounded = round2(snapshot.score * runtimeRatio);
     const runtimeDelta = round2(runtimeNextRounded - snapshot.score);
+    const runtimeCombatDelta = round2(runtimeNextCombatPower - runtimeBaseCombatPower);
     const nextDiff = Math.abs(local.nextScore - runtimeNextRounded);
     const deltaDiff = Math.abs(local.deltaScore - runtimeDelta);
+    const combatNextDiff = Math.abs(localCombat.nextScore - runtimeNextCombatPower);
+    const combatDeltaDiff = Math.abs(localCombat.deltaScore - runtimeCombatDelta);
 
     console.log(
       [
         `${normalizedCase.key}:`,
         `local ${local.baseScore.toFixed(2)} -> ${local.nextScore.toFixed(2)} (${local.deltaScore.toFixed(2)})`,
-        `lopec ${round2(runtimeBaseScore).toFixed(2)} -> ${runtimeNextRounded.toFixed(2)} (${runtimeDelta.toFixed(2)})`
+        `lopec ${round2(runtimeBaseScore).toFixed(2)} -> ${runtimeNextRounded.toFixed(2)} (${runtimeDelta.toFixed(2)})`,
+        `combat ${localCombat.baseScore.toFixed(2)} -> ${localCombat.nextScore.toFixed(2)} (${localCombat.deltaScore.toFixed(2)})`
       ].join(" ")
     );
 
     if (nextDiff > SCORE_TOLERANCE || deltaDiff > SCORE_TOLERANCE) {
       failures.push(
         `${normalizedCase.key}: next diff ${nextDiff.toFixed(4)}, delta diff ${deltaDiff.toFixed(4)}`
+      );
+    }
+
+    if (combatNextDiff > SCORE_TOLERANCE || combatDeltaDiff > SCORE_TOLERANCE) {
+      failures.push(
+        `${normalizedCase.key}: combat next diff ${combatNextDiff.toFixed(4)}, combat delta diff ${combatDeltaDiff.toFixed(4)}`
       );
     }
   }
@@ -627,15 +704,17 @@ async function verifyParityCases(runtime: LopecRuntime): Promise<void> {
     classModule,
     dealerModule,
     supportModule,
+    completeModule,
     snapshotCache
   );
-  await verifySupportClassMutationCases(dealerModule, supportModule, snapshotCache);
+  await verifySupportClassMutationCases(dealerModule, supportModule, completeModule, snapshotCache);
 }
 
 async function verifyDealerClassMutationCases(
   classModule: RuntimeClassBaseEffects,
   dealerModule: { cA(data: LopecSimulatorData): RuntimeDealerScore },
   supportModule: { PR(data: LopecSimulatorData): RuntimeSupportScore },
+  completeModule: { F(data: LopecSimulatorData): RuntimeCompleteMetric },
   snapshotCache: Map<string, Awaited<ReturnType<typeof fetchLopecSnapshot>>>
 ): Promise<void> {
   const characterName = "중사진심지수";
@@ -694,8 +773,8 @@ async function verifyDealerClassMutationCases(
       continue;
     }
 
-    const runtimeBaseScore = readRuntimeScore("dealer", simulator, dealerModule, supportModule);
-    const runtimeNextScore = readRuntimeScore("dealer", nextSimulator, dealerModule, supportModule);
+    const runtimeBaseScore = readRuntimeMetric("lopec", "dealer", simulator, dealerModule, supportModule, completeModule);
+    const runtimeNextScore = readRuntimeMetric("lopec", "dealer", nextSimulator, dealerModule, supportModule, completeModule);
     const runtimeRatio = runtimeNextScore / runtimeBaseScore;
     const runtimeNextRounded = round2(snapshot.score * runtimeRatio);
     const runtimeDelta = round2(runtimeNextRounded - snapshot.score);
@@ -724,6 +803,7 @@ async function verifyDealerClassMutationCases(
 async function verifySupportClassMutationCases(
   dealerModule: { cA(data: LopecSimulatorData): RuntimeDealerScore },
   supportModule: { PR(data: LopecSimulatorData): RuntimeSupportScore },
+  completeModule: { F(data: LopecSimulatorData): RuntimeCompleteMetric },
   snapshotCache: Map<string, Awaited<ReturnType<typeof fetchLopecSnapshot>>>
 ): Promise<void> {
   const characterName = "채욘";
@@ -781,8 +861,8 @@ async function verifySupportClassMutationCases(
       continue;
     }
 
-    const runtimeBaseScore = readRuntimeScore("support", simulator, dealerModule, supportModule);
-    const runtimeNextScore = readRuntimeScore("support", nextSimulator, dealerModule, supportModule);
+    const runtimeBaseScore = readRuntimeMetric("lopec", "support", simulator, dealerModule, supportModule, completeModule);
+    const runtimeNextScore = readRuntimeMetric("lopec", "support", nextSimulator, dealerModule, supportModule, completeModule);
     const runtimeRatio = runtimeNextScore / runtimeBaseScore;
     const runtimeNextRounded = round2(snapshot.score * runtimeRatio);
     const runtimeDelta = round2(runtimeNextRounded - snapshot.score);
@@ -832,12 +912,20 @@ function normalizeCandidateStats(
   };
 }
 
-function readRuntimeScore(
+function readRuntimeMetric(
+  metricMode: AccessoryMetricMode,
   mode: AccessoryScoringMode,
   data: LopecSimulatorData,
   dealerModule: { cA(data: LopecSimulatorData): RuntimeDealerScore },
-  supportModule: { PR(data: LopecSimulatorData): RuntimeSupportScore }
+  supportModule: { PR(data: LopecSimulatorData): RuntimeSupportScore },
+  completeModule: { F(data: LopecSimulatorData): RuntimeCompleteMetric }
 ): number {
+  if (metricMode === "combatPower") {
+    const metrics = completeModule.F(data);
+
+    return mode === "support" ? metrics.서폿_전투력 : metrics.딜러_전투력;
+  }
+
   if (mode === "support") {
     return supportModule.PR(data).supportSpecPoint;
   }

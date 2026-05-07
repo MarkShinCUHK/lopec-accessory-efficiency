@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { LostarkApiError } from "@/lib/lostark/client";
 import { getCharacterState } from "@/lib/lostark/armory";
+import { readExactLopecDisplayCombatPower } from "@/lib/lopec/exact-score";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -25,7 +26,7 @@ export async function GET(request: Request, context: RouteContext) {
         serverName: character.serverName,
         className: character.className,
         itemAvgLevel: character.itemAvgLevel,
-        combatPower: character.combatPower,
+        combatPower: readExactLopecDisplayCombatPower(character),
         lopecScore: character.lopec?.score ?? null,
         isSupport: character.lopec?.simulator?.profile.supportCheck ?? false,
         imageUrl: character.imageUrl,

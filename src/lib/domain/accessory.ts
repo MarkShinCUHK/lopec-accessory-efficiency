@@ -5,6 +5,7 @@ import type {
 
 export type AccessoryType = "necklace" | "earring" | "ring";
 export type AccessoryScoringMode = "dealer" | "support";
+export type AccessoryMetricMode = "lopec" | "combatPower";
 export type AccessorySlot =
   | "necklace"
   | "earring1"

@@ -1,6 +1,6 @@
 {
   "source": "https://lopec.kr",
-  "updatedAt": "2026-05-01T12:28:57.428Z",
+  "updatedAt": "2026-05-03T06:44:49.854Z",
   "modules": [
     {
       "key": "dealer-score-wrapper",
@@ -22,6 +22,41 @@
       "moduleId": "65224",
       "sha256": "a0397b256dd10c3b03de725510f0849558bbd8694d79e555c00e5ccca08a0816",
       "length": 3061
+    },
+    {
+      "key": "complete-metrics",
+      "description": "LOPEC 점수/전투력 통합 계산",
+      "moduleId": "54122",
+      "sha256": "c6a91c7460ea8d16d95215f0e94d0ba29098912947a828f20895004361cf7764",
+      "length": 1674
+    },
+    {
+      "key": "dealer-combat-input",
+      "description": "딜러 전투력 입력값 생성",
+      "moduleId": "47608",
+      "sha256": "ff16a92ea96becb2ba21107b66ee819a433ccb96c5cc9aac07abd88751e146ba",
+      "length": 4210
+    },
+    {
+      "key": "support-base-attack-combat",
+      "description": "서포터 전투력 기본 공격력 계산",
+      "moduleId": "33485",
+      "sha256": "6f2b9f5dd27d93abc5aac3302523840991deaf91ade32aff0b54a775e20eae8e",
+      "length": 1291
+    },
+    {
+      "key": "support-combat-input",
+      "description": "서포터 전투력 입력값 생성",
+      "moduleId": "51738",
+      "sha256": "6192cb54a8dde77b9241c391ab0e203d224f1ef48e7473c12e5d7979fb29e36b",
+      "length": 3479
+    },
+    {
+      "key": "support-care-combat",
+      "description": "서포터 케어 전투력 계산",
+      "moduleId": "56441",
+      "sha256": "863426f1fcc44da6a392ae86734bcd7d185c40f9a4bbb748f0a99fe542afbc04",
+      "length": 1407
     },
     {
       "key": "support-score-input",

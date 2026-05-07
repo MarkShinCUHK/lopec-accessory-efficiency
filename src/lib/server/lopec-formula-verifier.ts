@@ -73,6 +73,35 @@ const FORMULA_SIGNATURES: FormulaSignature[] = [
     contains: ["공격력_팔찌제외", "기본_공격력_전투력", "powerIndex_combat"]
   },
   {
+    key: "complete-metrics",
+    description: "LOPEC 점수/전투력 통합 계산",
+    contains: ["딜러_전투력", "서폿_전투력", "기본_공격력_전투력"]
+  },
+  {
+    key: "dealer-combat-input",
+    description: "딜러 전투력 입력값 생성",
+    contains: ["무기품질_전투력", "악세서리_전투력", "스텟_전투력", "보주_전투력"]
+  },
+  {
+    key: "support-base-attack-combat",
+    description: "서포터 전투력 기본 공격력 계산",
+    contains: [
+      "기본_공격력:Math.floor((u(!1)*n/6)**.5*t)",
+      "기본_공격력_전투력:Math.floor((u(!0)*n/6)**.5*t)",
+      "powerIndex_combat"
+    ]
+  },
+  {
+    key: "support-combat-input",
+    description: "서포터 전투력 입력값 생성",
+    contains: ["아군 공격력 강화 효과", "아군 피해량 강화 효과", "스텟_전투력"]
+  },
+  {
+    key: "support-care-combat",
+    description: "서포터 케어 전투력 계산",
+    contains: ["기본 케어 전투력", "케어 전투력", "파티원"]
+  },
+  {
     key: "support-score-input",
     description: "서포터 점수 입력값 생성",
     contains: ["공증가동률", "아군 공격력 강화 효과", "혼돈의 해 코어 : 흐르는 마나"]

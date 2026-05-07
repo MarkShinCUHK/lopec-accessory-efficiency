@@ -27,10 +27,26 @@ export interface LopecSimulatorData {
     avatarStats?: number;
   };
   armory: {
-    equipment: Record<string, { grade?: string; quality?: number; stat?: number } | null>;
+    equipment: Record<
+      string,
+      {
+        grade?: string;
+        health?: number;
+        highReforge?: number | null;
+        icon?: string;
+        itemLevel?: number;
+        name?: string;
+        quality?: number;
+        reforge?: number;
+        stat?: number;
+        tier?: number;
+      } | null
+    >;
     accessory: Record<string, LopecSimulatorAccessory | { option?: string[]; tier?: number; grade?: string } | null>;
     abilityStone?: {
       attackbonus?: number | null;
+      health?: number | null;
+      healthBonus?: number | null;
     } | null;
     orb?: {
       name?: string;
@@ -41,6 +57,7 @@ export interface LopecSimulatorData {
     evolution?: {
       points?: number;
       karmaRank?: number;
+      karmalevel?: number;
       nodes?: Array<{ name: string; level: number }>;
     };
     enlightenment?: {
@@ -60,9 +77,15 @@ export interface LopecSimulatorData {
     core?: Array<{ name: string; grade: string; point: number }>;
   };
   baseEffect: {
+    apiMaxHealth?: number;
+    dinner?: number;
+    isAzena?: boolean;
     petDamage: number;
+    petHpEffect?: number;
+    petHpPatrol?: number;
     petStat: number;
   };
+  card?: string;
   gem: {
     attackBonus?: number;
     gems?: Array<{ level: number; type: string; skill: string; attackBonus?: number | null; valid?: boolean }>;
@@ -102,6 +125,7 @@ export async function fetchLopecSnapshot(characterName: string): Promise<LopecSn
   const html = await response.text();
   const props = readSimulatorProps(html);
   const score = props?.dbScore ?? readNumber(html, "dbScore") ?? readNumber(html, "specPoint");
+  const displayedCombatPower = readDisplayedSimulatorMetric(html, "예상 전투력");
 
   if (!score || score <= 0) {
     return null;
@@ -110,13 +134,31 @@ export async function fetchLopecSnapshot(characterName: string): Promise<LopecSn
   return {
     score,
     attack: props?.lostarkParser.stats.attack ?? readNumber(html, "attack"),
-    combatPower: props?.lostarkParser.stats.combatPower ?? readNumber(html, "combatPower"),
+    combatPower:
+      displayedCombatPower ??
+      props?.lostarkParser.stats.combatPower ??
+      readNumber(html, "combatPower"),
     powerIndex: props?.lostarkParser.stats.powerIndex ?? readNumber(html, "powerIndex"),
     powerIndexCombat: props?.lostarkParser.stats.powerIndex_combat ?? readNumber(html, "powerIndex_combat"),
     enlightenmentPoints:
       props?.lostarkParser.arkPassive.enlightenment?.points ?? readNestedPoint(html, "enlightenment"),
     simulator: props?.lostarkParser ?? null
   };
+}
+
+function readDisplayedSimulatorMetric(html: string, label: string): number | null {
+  const labelIndex = html.indexOf(`>${label}</h3>`);
+
+  if (labelIndex < 0) {
+    return null;
+  }
+
+  const segment = html.slice(labelIndex, labelIndex + 700);
+  const valueMatch = segment.match(/SimGroupResult_value[^>]*>([\d,.]+)<\/span>/);
+  const value = valueMatch?.[1]?.replace(/,/g, "");
+  const numberValue = value ? Number(value) : NaN;
+
+  return Number.isFinite(numberValue) ? numberValue : null;
 }
 
 function readSimulatorProps(

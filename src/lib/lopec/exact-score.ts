@@ -1,5 +1,6 @@
 import {
   type AccessoryCandidate,
+  type AccessoryMetricMode,
   type AccessoryScoringMode,
   type AccessorySlot,
   type AccessoryState
@@ -17,6 +18,7 @@ export interface ExactLopecReplacementScore {
   deltaScore: number;
   scoreRatio: number;
   deltaEfficiency: number;
+  metricMode: AccessoryMetricMode;
 }
 
 export interface ExactLopecReplacementInput {
@@ -41,7 +43,6 @@ const LOPEC_ACCESSORY_SLOTS: LopecAccessorySlot[] = [
   "ring1",
   "ring2"
 ];
-
 const ARK_GRID_ATTACK_CORE: Record<number, Record<"유물" | "고대", { atkPlus: number; atkPer: number }>> = {
   10: { 유물: { atkPlus: 0, atkPer: 0 }, 고대: { atkPlus: 0, atkPer: 0 } },
   14: { 유물: { atkPlus: 0, atkPer: 0.55 }, 고대: { atkPlus: 0, atkPer: 0.55 } },
@@ -70,6 +71,27 @@ const ARK_GRID_ADDITIONAL_DAMAGE_CORE: Record<number, Record<"유물" | "고대"
   18: { 유물: 2.33, 고대: 3.73 },
   19: { 유물: 2.56, 고대: 3.96 },
   20: { 유물: 2.78, 고대: 4.19 }
+};
+
+const ARK_GRID_LIFE_CORE: Record<
+  number,
+  Record<"유물" | "고대", { health: number; statHP?: number }>
+> = {
+  10: { 유물: { health: 420 }, 고대: { health: 420 } },
+  14: { 유물: { health: 420, statHP: 900 }, 고대: { health: 420, statHP: 900 } },
+  17: { 유물: { health: 1260, statHP: 2700 }, 고대: { health: 1680, statHP: 3600 } },
+  18: { 유물: { health: 1400, statHP: 2700 }, 고대: { health: 1820, statHP: 3600 } },
+  19: { 유물: { health: 1540, statHP: 2700 }, 고대: { health: 1960, statHP: 3600 } },
+  20: { 유물: { health: 1680, statHP: 2700 }, 고대: { health: 2100, statHP: 3600 } }
+};
+
+const ARK_GRID_SUPPORT_CARE_CORE: Record<number, Record<"유물" | "고대", number>> = {
+  10: { 유물: 1.0084, 고대: 1.0084 },
+  14: { 유물: 1.0168, 고대: 1.0168 },
+  17: { 유물: 1.0504, 고대: 1.0672 },
+  18: { 유물: 1.056, 고대: 1.0728 },
+  19: { 유물: 1.0616, 고대: 1.0784 },
+  20: { 유물: 1.0672, 고대: 1.084 }
 };
 
 const ARK_GRID_CRIT_FINAL_DAMAGE_CORE: Record<
@@ -150,20 +172,27 @@ export function calculateExactLopecReplacement(
   character: CharacterState,
   replacedSlot: AccessorySlot,
   candidate: AccessoryCandidate,
-  scoringMode?: AccessoryScoringMode
+  scoringMode?: AccessoryScoringMode,
+  metricMode: AccessoryMetricMode = "lopec"
 ): ExactLopecReplacementScore | null {
-  return calculateExactLopecReplacementSet(character, [{ replacedSlot, candidate }], scoringMode);
+  return calculateExactLopecReplacementSet(
+    character,
+    [{ replacedSlot, candidate }],
+    scoringMode,
+    metricMode
+  );
 }
 
 export function calculateExactLopecReplacementSet(
   character: CharacterState,
   replacements: ExactLopecReplacementInput[],
-  scoringMode?: AccessoryScoringMode
+  scoringMode?: AccessoryScoringMode,
+  metricMode: AccessoryMetricMode = "lopec"
 ): ExactLopecReplacementScore | null {
   const simulator = character.lopec?.simulator;
-  const baseScore = character.lopec?.score;
+  const loadedBaseScore = readBaseMetricValue(character, metricMode);
 
-  if (!simulator || !baseScore || replacements.length === 0) {
+  if (!simulator || !loadedBaseScore || replacements.length === 0) {
     return null;
   }
 
@@ -174,19 +203,22 @@ export function calculateExactLopecReplacementSet(
   }
 
   const mode = scoringMode ?? (simulator.profile.supportCheck ? "support" : "dealer");
-  const scoreRatio =
-    mode === "support"
-      ? calculateSupportReplacementRatio(simulator, nextSimulator)
-      : calculateDealerReplacementRatio(simulator, nextSimulator);
-  const nextScore = round2(baseScore * scoreRatio);
-  const deltaScore = round2(nextScore - baseScore);
+  const baseScore = readFormulaBaseMetricValue(loadedBaseScore, metricMode, mode);
+  const rawNextScore =
+    metricMode === "combatPower"
+      ? readCombatPowerReplacementScore(simulator, nextSimulator, baseScore, mode)
+      : baseScore * calculateSpecPointReplacementRatio(simulator, nextSimulator, mode);
+  const nextScore = round2(rawNextScore);
+  const scoreRatio = baseScore > 0 ? rawNextScore / baseScore : 1;
+  const deltaScore = round2(rawNextScore - baseScore);
 
   return {
     baseScore,
     nextScore,
     deltaScore,
     scoreRatio,
-    deltaEfficiency: round3((scoreRatio - 1) * 100)
+    deltaEfficiency: round3((scoreRatio - 1) * 100),
+    metricMode
   };
 }
 
@@ -198,6 +230,21 @@ export function createLopecWeaponAttackSimulation(
   return createLopecEquipmentSimulation(character, { weaponAttack }, scoringMode);
 }
 
+export function readExactLopecDisplayCombatPower(
+  character: CharacterState,
+  scoringMode?: AccessoryScoringMode
+): number {
+  const baseCombatPower = readBaseMetricValue(character, "combatPower");
+
+  if (!baseCombatPower) {
+    return character.combatPower;
+  }
+
+  const mode = scoringMode ?? (character.lopec?.simulator?.profile.supportCheck ? "support" : "dealer");
+
+  return readFormulaBaseMetricValue(baseCombatPower, "combatPower", mode);
+}
+
 export function createLopecEquipmentSimulation(
   character: CharacterState,
   target: {
@@ -205,7 +252,7 @@ export function createLopecEquipmentSimulation(
     armorMainStats?: ArmorMainStats | null;
   },
   scoringMode?: AccessoryScoringMode
-): { score: number; simulator: LopecSimulatorData } | null {
+): { score: number; combatPower: number | null; simulator: LopecSimulatorData } | null {
   const simulator = character.lopec?.simulator;
   const baseScore = character.lopec?.score;
 
@@ -215,13 +262,17 @@ export function createLopecEquipmentSimulation(
 
   const nextSimulator = replaceEquipmentStats(simulator, target);
   const mode = scoringMode ?? (simulator.profile.supportCheck ? "support" : "dealer");
-  const scoreRatio =
-    mode === "support"
-      ? calculateSupportReplacementRatio(simulator, nextSimulator)
-      : calculateDealerReplacementRatio(simulator, nextSimulator);
+  const scoreRatio = calculateSpecPointReplacementRatio(simulator, nextSimulator, mode);
+  const loadedBaseCombatPower = readBaseMetricValue(character, "combatPower");
+  const baseCombatPower = loadedBaseCombatPower
+    ? readFormulaBaseMetricValue(loadedBaseCombatPower, "combatPower", mode)
+    : null;
 
   return {
     score: round2(baseScore * scoreRatio),
+    combatPower: baseCombatPower
+      ? readCombatPowerReplacementScore(simulator, nextSimulator, baseCombatPower, mode)
+      : null,
     simulator: nextSimulator
   };
 }
@@ -325,6 +376,37 @@ function createLopecAccessory(
   };
 }
 
+function readBaseMetricValue(
+  character: CharacterState,
+  metricMode: AccessoryMetricMode
+): number | null {
+  if (metricMode === "combatPower") {
+    return character.lopec?.combatPower ?? character.combatPower ?? null;
+  }
+
+  return character.lopec?.score ?? null;
+}
+
+function readFormulaBaseMetricValue(
+  baseScore: number,
+  metricMode: AccessoryMetricMode,
+  mode: AccessoryScoringMode
+): number {
+  return metricMode === "combatPower" && mode === "support"
+    ? round2(readSupportCombatPowerCalibrationBase(baseScore))
+    : baseScore;
+}
+
+function calculateSpecPointReplacementRatio(
+  current: LopecSimulatorData,
+  next: LopecSimulatorData,
+  mode: AccessoryScoringMode
+): number {
+  return mode === "support"
+    ? calculateSupportReplacementRatio(current, next)
+    : calculateDealerReplacementRatio(current, next);
+}
+
 function calculateDealerReplacementRatio(
   current: LopecSimulatorData,
   next: LopecSimulatorData
@@ -346,6 +428,510 @@ function calculateSupportReplacementRatio(
   const nextScore = readSupportSpecPoint(next);
 
   return currentScore > 0 && nextScore > 0 ? nextScore / currentScore : 1;
+}
+
+function readCombatPowerReplacementScore(
+  current: LopecSimulatorData,
+  next: LopecSimulatorData,
+  currentCombatPower: number,
+  mode: AccessoryScoringMode
+): number {
+  if (mode === "support") {
+    return readSupportCombatPowerReplacementScore(current, next, currentCombatPower);
+  }
+
+  const currentVariable = readDealerCombatPowerVariable(current);
+  const nextVariable = readDealerCombatPowerVariable(next);
+
+  return currentVariable > 0 && nextVariable > 0
+    ? round2(currentCombatPower * (nextVariable / currentVariable))
+    : round2(currentCombatPower);
+}
+
+function readDealerCombatPowerVariable(data: LopecSimulatorData): number {
+  return (
+    readDealerBaseAttackCombat(data) *
+    readDealerCombatAccessoryFactor(data) *
+    readDealerCombatStatFactor(data)
+  );
+}
+
+function readSupportCombatPowerReplacementScore(
+  current: LopecSimulatorData,
+  next: LopecSimulatorData,
+  currentCombatPower: number
+): number {
+  const currentCare = readSupportCareCombatPower(current);
+  const nextCare = readSupportCareCombatPower(next);
+  const currentVariable = readSupportCombatPowerVariable(current);
+  const nextVariable = readSupportCombatPowerVariable(next);
+
+  if (currentVariable <= 0 || nextVariable <= 0) {
+    return round2(currentCombatPower);
+  }
+
+  const fixedMultiplier = Math.max(currentCombatPower - currentCare, 0) / currentVariable;
+
+  return round2(fixedMultiplier * nextVariable + nextCare);
+}
+
+function readSupportCombatPowerCalibrationBase(currentCombatPower: number): number {
+  return currentCombatPower;
+}
+
+function readSupportCombatPowerVariable(data: LopecSimulatorData): number {
+  return (
+    readSupportBaseAttackCombat(data) *
+    readSupportCombatAccessoryFactor(data) *
+    readSupportCombatStatFactor(data)
+  );
+}
+
+function readDealerBaseAttackCombat(data: LopecSimulatorData): number {
+  const attackBonus = readAttackBonus(data);
+  const powerStat = readCombatPowerStat(data);
+  const weaponAttack = readCombatWeaponAttack(data);
+
+  return Math.sqrt((powerStat * weaponAttack) / 6) * attackBonus.baseAtkBonus;
+}
+
+function readSupportBaseAttackCombat(data: LopecSimulatorData): number {
+  const attackBonus =
+    ((data.armory.abilityStone?.attackbonus ?? 0) + (data.gem.attackBonus ?? 0)) / 100 + 1;
+  const powerStat = readCombatPowerStat(data);
+  const weaponAttack = readCombatWeaponAttack(data);
+
+  return Math.floor(Math.sqrt((powerStat * weaponAttack) / 6) * attackBonus);
+}
+
+function readCombatPowerStat(data: LopecSimulatorData): number {
+  return Math.floor(
+    (
+      sumEquipmentStat(data) +
+      sumAccessoryStat(data) +
+      sumBangleMainStat(data) +
+      (data.stats.powerIndex_combat ?? 0)
+    ) *
+      (
+        1 +
+        (data.avatar.avatarStats ?? 0) / 100 +
+        (data.baseEffect.petStat ?? 1) / 100
+      )
+  );
+}
+
+function readCombatWeaponAttack(data: LopecSimulatorData): number {
+  const weaponBase = data.armory.equipment.weapon?.stat ?? 0;
+  const accessoryWeapon = sumAccessoryWeaponOptions(data);
+  const weaponCore = readArkGridWeaponCore(data);
+  const enlightenmentKarma = (data.arkPassive.enlightenment?.karmalevel ?? 0) * 0.1;
+
+  return Math.floor(
+    (
+      weaponBase +
+      accessoryWeapon.flat +
+      sumBangleWeaponAttackOrigin(data) +
+      weaponCore.weaponAtkPlus
+    ) *
+      (
+        1 +
+        accessoryWeapon.percent / 100 +
+        enlightenmentKarma / 100 +
+        weaponCore.weaponAtkPer / 100
+      )
+  );
+}
+
+function readDealerCombatAccessoryFactor(data: LopecSimulatorData): number {
+  return LOPEC_ACCESSORY_SLOTS.reduce((factor, slot) => {
+    const accessory = readLopecAccessory(data, slot);
+
+    if (!accessory) {
+      return factor;
+    }
+
+    return accessory.option.reduce(
+      (optionFactor, option) => optionFactor * readDealerCombatAccessoryOptionFactor(option),
+      factor
+    );
+  }, 1);
+}
+
+function readDealerCombatAccessoryOptionFactor(option: string): number {
+  if (option.includes("무기 공격력")) {
+    return 1;
+  }
+
+  const attackPercent = readOptionPercent(option, "공격력");
+
+  if (attackPercent > 0) {
+    return 1 + attackPercent * 0.01;
+  }
+
+  const attackFlat = readOptionFlat(option, "공격력");
+
+  if (attackFlat > 0) {
+    return 1 + attackFlat * 0.000007;
+  }
+
+  const additionalDamage = readOptionPercent(option, "추가 피해");
+
+  if (additionalDamage > 0) {
+    return 1 + additionalDamage * 0.007692;
+  }
+
+  const critRate = readOptionPercent(option, "치명타 적중률");
+
+  if (critRate > 0) {
+    return 1 + critRate * 0.007742;
+  }
+
+  const critDamage = readOptionPercent(option, "치명타 피해");
+
+  if (critDamage > 0) {
+    return 1 + critDamage * 0.003;
+  }
+
+  const enemyDamage = readOptionPercent(option, "적에게 주는 피해");
+
+  if (enemyDamage > 0) {
+    return 1 + enemyDamage * 0.01;
+  }
+
+  return 1;
+}
+
+function readDealerCombatStatFactor(data: LopecSimulatorData): number {
+  const bangleStats = readBangleCombatStats(data);
+  const statTotal =
+    (data.stats.critical ?? 0) +
+    (data.stats.haste ?? 0) +
+    (data.stats.special ?? 0) +
+    bangleStats.critical +
+    bangleStats.haste +
+    bangleStats.special;
+
+  return (statTotal * 3) / 10000 + 1;
+}
+
+function readSupportCombatAccessoryFactor(data: LopecSimulatorData): number {
+  const configs: Array<{ label: string; value: number }> = [
+    { label: "아군 공격력 강화 효과", value: 0.0075 },
+    { label: "아군 피해량 강화 효과", value: 0.005 },
+    { label: "낙인력", value: 0.006 },
+    { label: "세레나데, 신앙, 조화 게이지 획득량", value: 0.005 }
+  ];
+
+  return LOPEC_ACCESSORY_SLOTS.reduce((factor, slot) => {
+    const accessory = readLopecAccessory(data, slot);
+
+    if (!accessory) {
+      return factor;
+    }
+
+    return accessory.option.reduce((optionFactor, option) => {
+      const entry = configs.find((config) => readOptionPercent(option, config.label) > 0);
+
+      return entry
+        ? optionFactor * (1 + readOptionPercent(option, entry.label) * entry.value)
+        : optionFactor;
+    }, factor);
+  }, 1);
+}
+
+function readSupportCombatStatFactor(data: LopecSimulatorData): number {
+  const bangleStats = readBangleCombatStats(data);
+  const statTotal =
+    (data.stats.haste ?? 0) +
+    (data.stats.special ?? 0) +
+    bangleStats.haste +
+    bangleStats.special;
+
+  return (statTotal * 4) / 10000 + 1;
+}
+
+function readSupportCareCombatPower(data: LopecSimulatorData): number {
+  const combatMaxHealth = readSupportCombatMaxHealth(data);
+
+  if (combatMaxHealth <= 0) {
+    return 0;
+  }
+
+  const baseCarePower = (12 * combatMaxHealth) / 10000;
+
+  return (
+    baseCarePower *
+    readSupportCareAccessoryFactor(data) *
+    readSupportCareBangleFactor(data) *
+    readSupportEngravingDefenseFactor(data) *
+    readSupportCareCoreFactor(data) *
+    readSupportCareOrbFactor(data)
+  );
+}
+
+function readSupportCareAccessoryFactor(data: LopecSimulatorData): number {
+  return (["earing1", "earing2"] as LopecAccessorySlot[]).reduce((factor, slot) => {
+    const accessory = readLopecAccessory(data, slot);
+
+    if (!accessory) {
+      return factor;
+    }
+
+    return accessory.option.reduce((optionFactor, option) => {
+      const partyShield = readOptionPercent(option, "파티원 보호막 효과");
+
+      if (partyShield > 0) {
+        return optionFactor * (1 + partyShield * 0.007);
+      }
+
+      const partyHeal = readOptionPercent(option, "파티원 회복 효과");
+
+      if (partyHeal > 0) {
+        return optionFactor * (1 + partyHeal * 0.007);
+      }
+
+      return optionFactor;
+    }, factor);
+  }, 1);
+}
+
+function readSupportCombatMaxHealth(data: LopecSimulatorData): number {
+  const apiMaxHealth = readOptionalNumber(data.baseEffect, "apiMaxHealth");
+  const baseHealth = readSupportBaseHealth(data);
+  const dinnerHealth = readOptionalNumber(data.baseEffect, "dinner") ?? 0;
+  const calibrationHealth = baseHealth + dinnerHealth;
+  const hidden = readSupportHiddenHealth(data, apiMaxHealth, calibrationHealth);
+
+  return calculateSupportMaxHealth(data, hidden, false, baseHealth);
+}
+
+function readSupportBaseHealth(data: LopecSimulatorData): number {
+  const abilityStone = data.armory.abilityStone as
+    | ({ health?: number | null; healthBonus?: number | null } & Record<string, unknown>)
+    | null
+    | undefined;
+
+  return (
+    716 +
+    sumEquipmentHealth(data) +
+    sumAccessoryHealth(data) +
+    (abilityStone?.health ?? 0) +
+    (abilityStone?.healthBonus ?? 0) +
+    sumBangleHealth(data) +
+    readArkGridLifeCoreValue(data, "health")
+  );
+}
+
+function readSupportHiddenHealth(
+  data: LopecSimulatorData,
+  apiMaxHealth: number | null,
+  calibrationHealth: number
+): number {
+  if (!apiMaxHealth || !Number.isFinite(apiMaxHealth)) {
+    return 1200;
+  }
+
+  let hiddenHealth = 1200;
+  let usesAzena = false;
+  let bestDiff = Number.POSITIVE_INFINITY;
+  const prefersAzena = readOptionalBoolean(data.baseEffect, "isAzena") === true;
+
+  for (let value = 1200; value <= 2400; value += 1) {
+    const normalHealth = calculateSupportMaxHealth(data, value, false, calibrationHealth);
+    const azenaHealth = calculateSupportMaxHealth(data, value, true, calibrationHealth);
+    const normalDiff = Math.abs(apiMaxHealth - normalHealth);
+    const azenaDiff = Math.abs(apiMaxHealth - azenaHealth);
+
+    if (normalDiff < bestDiff || (normalDiff === bestDiff && !prefersAzena && usesAzena)) {
+      hiddenHealth = value;
+      usesAzena = false;
+      bestDiff = normalDiff;
+    }
+
+    if (azenaDiff < bestDiff || (azenaDiff === bestDiff && prefersAzena && !usesAzena)) {
+      hiddenHealth = value;
+      usesAzena = true;
+      bestDiff = azenaDiff;
+    }
+  }
+
+  return hiddenHealth;
+}
+
+function calculateSupportMaxHealth(
+  data: LopecSimulatorData,
+  hiddenHealth: number,
+  includeAzena: boolean,
+  baseHealth: number
+): number {
+  const multiplier =
+    1 +
+    (readOptionalNumber(data.baseEffect, "petHpEffect") ?? 0) / 100 +
+    (readOptionalNumber(data.baseEffect, "petHpPatrol") ?? 0) / 100 +
+    readSupportEvolutionHealthFactor(data);
+  const classFactor = readSupportClassHealthFactor(data);
+  const armorQualityFactor = readArmorQualityHealthFactor(data);
+  const fixedHealth =
+    sumMaxHealthOptions(data) +
+    (data.arkPassive.evolution?.karmalevel ?? 0) * 400 +
+    readArkGridLifeCoreValue(data, "statHP");
+  const healthWithoutAzena = Math.floor(
+    (Math.floor((baseHealth + hiddenHealth) * classFactor) + fixedHealth) *
+      armorQualityFactor *
+      multiplier
+  );
+  const azenaHealth = Math.floor(12000 * armorQualityFactor * multiplier);
+
+  return includeAzena ? healthWithoutAzena + azenaHealth : healthWithoutAzena;
+}
+
+function sumEquipmentHealth(data: LopecSimulatorData): number {
+  return Object.values(data.armory.equipment).reduce(
+    (sum, item) => sum + (item?.health ?? 0),
+    0
+  );
+}
+
+function sumAccessoryHealth(data: LopecSimulatorData): number {
+  return LOPEC_ACCESSORY_SLOTS.reduce((sum, slot) => {
+    const accessory = readLopecAccessory(data, slot);
+
+    return sum + (accessory?.health ?? 0);
+  }, 0);
+}
+
+function sumBangleHealth(data: LopecSimulatorData): number {
+  return readBangleOptions(data).reduce((sum, option) => {
+    const match = option.match(/체력\s*\+([\d,]+)/);
+
+    return match ? sum + Number(match[1].replaceAll(",", "")) : sum;
+  }, 0);
+}
+
+function sumMaxHealthOptions(data: LopecSimulatorData): number {
+  const accessoryHealth = LOPEC_ACCESSORY_SLOTS.reduce((sum, slot) => {
+    const options = readLopecAccessory(data, slot)?.option ?? [];
+
+    return (
+      sum +
+      options.reduce((optionSum, option) => {
+        const match = option.match(/최대\s*생명력\s*\+([\d,]+)/);
+
+        return match ? optionSum + Number(match[1].replaceAll(",", "")) : optionSum;
+      }, 0)
+    );
+  }, 0);
+  const bangleHealth = readBangleOptions(data).reduce((sum, option) => {
+    const match = option.match(/최대\s*생명력\s*\+([\d,]+)/);
+
+    return match ? sum + Number(match[1].replaceAll(",", "")) : sum;
+  }, 0);
+
+  return accessoryHealth + bangleHealth;
+}
+
+function readArkGridLifeCoreValue(
+  data: LopecSimulatorData,
+  key: "health" | "statHP"
+): number {
+  const core = readArkGridCore(data, "혼돈의 별 코어 : 생명");
+
+  if (!core) {
+    return 0;
+  }
+
+  const entry =
+    ARK_GRID_LIFE_CORE[core.point]?.[readArkGridGrade(core.grade)];
+
+  return entry?.[key] ?? 0;
+}
+
+function readArmorQualityHealthFactor(data: LopecSimulatorData): number {
+  const totalVitality = Object.entries(data.armory.equipment).reduce((sum, [slot, item]) => {
+    if (slot === "weapon") {
+      return sum;
+    }
+
+    const quality = item?.quality ?? 0;
+
+    return sum + Math.ceil(Number((0.14 * quality ** 2).toFixed(10)));
+  }, 0);
+
+  return 1 + totalVitality / 14000.03;
+}
+
+function readSupportClassHealthFactor(data: LopecSimulatorData): number {
+  switch (readProfileClass(data)) {
+    case "바드":
+    case "도화가":
+      return 2;
+    case "홀리나이트":
+    case "발키리":
+      return 2.1;
+    case "스트라이커":
+      return 2.2;
+    case "브레이커":
+      return 2.3;
+    default:
+      return 0;
+  }
+}
+
+function readSupportEvolutionHealthFactor(data: LopecSimulatorData): number {
+  const supportNodes = new Set(["기원", "선각자", "진군"]);
+
+  return (
+    0.06 *
+    readEvolutionNodes(data).reduce(
+      (count, node) => (supportNodes.has(node.name) ? count + 1 : count),
+      0
+    )
+  );
+}
+
+function readSupportCareBangleFactor(data: LopecSimulatorData): number {
+  return readBangleOptions(data).reduce((factor, option) => {
+    const match = option.match(/보호\s*및\s*회복\s*효과\s*\+([\d.]+)%/);
+
+    return match ? factor * (1 + 0.014 * Number(match[1])) : factor;
+  }, 1);
+}
+
+function readSupportEngravingDefenseFactor(data: LopecSimulatorData): number {
+  return readEngravings(data).reduce((factor, engraving) => {
+    if (engraving.name !== "전문의") {
+      return factor;
+    }
+
+    const gradeCode = engraving.grade === "유물" ? 9 : 5;
+    const stone = engraving.stone ?? 0;
+    const key = 20 * stone + engraving.level + gradeCode;
+    const value = EXPERT_DEFENSE_FACTOR[key] ?? 1;
+
+    return value === 1 ? factor : factor * (value / 10000 + 1);
+  }, 1);
+}
+
+function readSupportCareCoreFactor(data: LopecSimulatorData): number {
+  const core = readArkGridCore(data, "혼돈의 별 코어 : 구원");
+
+  if (!core) {
+    return 1;
+  }
+
+  return (
+    ARK_GRID_SUPPORT_CARE_CORE[core.point]?.[
+      readArkGridGrade(core.grade)
+    ] ?? 1
+  );
+}
+
+function readSupportCareOrbFactor(data: LopecSimulatorData): number {
+  const orbName = data.armory.orb?.name;
+
+  return orbName === "신성한 자연의 보주" || orbName === "온화한 투영의 보주"
+    ? 1.013
+    : 1;
 }
 
 interface SupportScoreInput {
@@ -1913,6 +2499,70 @@ const AWAKENING_STONE_COOLDOWN: Record<number, number> = {
   4: 0.12
 };
 
+const EXPERT_DEFENSE_FACTOR: Record<number, number> = {
+  5: 3360,
+  6: 3500,
+  7: 3640,
+  8: 3780,
+  9: 3920,
+  10: 4060,
+  11: 4200,
+  12: 4340,
+  13: 4480,
+  21: 3080,
+  22: 3220,
+  23: 3360,
+  24: 3500,
+  25: 3640,
+  26: 3780,
+  27: 3920,
+  28: 4060,
+  29: 4200,
+  30: 4340,
+  31: 4480,
+  32: 4620,
+  33: 4760,
+  41: 3150,
+  42: 3290,
+  43: 3430,
+  44: 3570,
+  45: 3710,
+  46: 3850,
+  47: 3990,
+  48: 4130,
+  49: 4270,
+  50: 4410,
+  51: 4550,
+  52: 4690,
+  53: 4830,
+  61: 3290,
+  62: 3430,
+  63: 3570,
+  64: 3710,
+  65: 3850,
+  66: 3990,
+  67: 4130,
+  68: 4270,
+  69: 4410,
+  70: 4550,
+  71: 4690,
+  72: 4830,
+  73: 4970,
+  81: 3360,
+  82: 3500,
+  83: 3640,
+  84: 3780,
+  85: 3920,
+  86: 4060,
+  87: 4200,
+  88: 4340,
+  89: 4480,
+  90: 4620,
+  91: 4760,
+  92: 4900,
+  93: 5040
+};
+
 const SUPPORT_CORE_EFFECTS: Record<
   string,
   Record<number, Record<"유물" | "고대", SupportCoreEffectEntry>>
@@ -2164,6 +2814,18 @@ function readBangleOptions(data: LopecSimulatorData): string[] {
   const options = bangle?.option;
 
   return Array.isArray(options) ? options : [];
+}
+
+function readOptionalNumber(source: object, key: string): number | null {
+  const value = (source as Record<string, unknown>)[key];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readOptionalBoolean(source: object, key: string): boolean | null {
+  const value = (source as Record<string, unknown>)[key];
+
+  return typeof value === "boolean" ? value : null;
 }
 
 function readArkGridCoreEffect(

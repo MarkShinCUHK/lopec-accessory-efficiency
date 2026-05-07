@@ -7,7 +7,11 @@ import {
   type AccessoryState
 } from "@/lib/domain/accessory";
 import { ARMOR_SLOTS, type ArmorSlot } from "@/lib/domain/armor";
-import type { LopecSnapshot } from "@/lib/lopec/snapshot";
+import {
+  readEquipmentSystem,
+  type EquipmentSystem
+} from "@/lib/domain/equipment";
+import type { LopecSnapshot, LopecSimulatorData } from "@/lib/lopec/snapshot";
 import type { LostarkArmory } from "@/lib/lostark/types";
 
 export interface CharacterState {
@@ -29,7 +33,11 @@ export interface CharacterState {
 
 export interface CharacterWeaponContext {
   name: string | null;
+  grade: string | null;
   enhancementLevel: number | null;
+  highReforgeLevel: number | null;
+  equipmentSystem: EquipmentSystem;
+  itemLevel: number | null;
   attack: number;
   quality: number;
 }
@@ -38,7 +46,11 @@ export interface CharacterArmorPieceContext {
   name: string | null;
   grade: string | null;
   enhancementLevel: number | null;
+  highReforgeLevel: number | null;
+  equipmentSystem: EquipmentSystem;
+  itemLevel: number | null;
   mainStat: number;
+  health: number;
   quality: number;
 }
 
@@ -161,7 +173,11 @@ function createArmorContext(armory: LostarkArmory): CharacterArmorContext {
         name: item.Name,
         grade: item.Grade,
         enhancementLevel: parseEnhancementLevel(item.Name),
+        highReforgeLevel: null,
+        equipmentSystem: "unknown",
+        itemLevel: null,
         mainStat: parseEquipmentMainStat(item),
+        health: 0,
         quality: parseEquipmentQuality(item)
       }
     ]);
@@ -193,9 +209,104 @@ function createWeaponContext(armory: LostarkArmory): CharacterWeaponContext {
 
   return {
     name: weapon?.Name ?? null,
+    grade: weapon?.Grade ?? null,
     enhancementLevel: weapon ? parseEnhancementLevel(weapon.Name) : null,
+    highReforgeLevel: null,
+    equipmentSystem: "unknown",
+    itemLevel: null,
     attack: weapon ? parseEquipmentWeaponAttack(weapon) : 0,
     quality: weapon ? parseEquipmentQuality(weapon) : 0
+  };
+}
+
+export function applyLopecEquipmentContext(
+  character: CharacterState,
+  lopec: LopecSnapshot | null
+): CharacterState {
+  const equipment = lopec?.simulator?.armory.equipment;
+
+  if (!equipment) {
+    return {
+      ...character,
+      lopec
+    };
+  }
+
+  const weapon = mergeWeaponContext(character.weapon, equipment.weapon ?? null);
+  const pieces = { ...character.armor.pieces };
+
+  for (const slot of ARMOR_SLOTS) {
+    pieces[slot] = mergeArmorPieceContext(
+      character.armor.pieces[slot],
+      equipment[slot] ?? null
+    );
+  }
+
+  const armorMainStat = Object.values(pieces).reduce(
+    (sum, piece) => sum + (piece?.mainStat ?? 0),
+    0
+  );
+  const enhancementLevels = Object.values(pieces)
+    .map((piece) => piece?.enhancementLevel ?? null)
+    .filter((level): level is number => typeof level === "number");
+
+  return {
+    ...character,
+    lopec,
+    weapon,
+    armor: {
+      pieces,
+      lowestEnhancementLevel:
+        enhancementLevels.length > 0 ? Math.min(...enhancementLevels) : null,
+      mainStat: armorMainStat
+    },
+    scoreContext: {
+      ...character.scoreContext,
+      armorMainStat,
+      weaponAttack: weapon.attack
+    }
+  };
+}
+
+function mergeWeaponContext(
+  current: CharacterWeaponContext,
+  lopecWeapon: LopecSimulatorData["armory"]["equipment"][string] | null
+): CharacterWeaponContext {
+  if (!lopecWeapon) {
+    return current;
+  }
+
+  return {
+    ...current,
+    name: lopecWeapon.name ?? current.name,
+    grade: lopecWeapon.grade ?? current.grade,
+    enhancementLevel: lopecWeapon.reforge ?? current.enhancementLevel,
+    highReforgeLevel: lopecWeapon.highReforge ?? null,
+    equipmentSystem: readEquipmentSystem(lopecWeapon),
+    itemLevel: lopecWeapon.itemLevel ?? current.itemLevel,
+    attack: lopecWeapon.stat ?? current.attack,
+    quality: lopecWeapon.quality ?? current.quality
+  };
+}
+
+function mergeArmorPieceContext(
+  current: CharacterArmorPieceContext | null,
+  lopecPiece: LopecSimulatorData["armory"]["equipment"][string] | null
+): CharacterArmorPieceContext | null {
+  if (!lopecPiece) {
+    return current;
+  }
+
+  return {
+    name: lopecPiece.name ?? current?.name ?? null,
+    grade: lopecPiece.grade ?? current?.grade ?? null,
+    enhancementLevel: lopecPiece.reforge ?? current?.enhancementLevel ?? null,
+    highReforgeLevel: lopecPiece.highReforge ?? null,
+    equipmentSystem: readEquipmentSystem(lopecPiece),
+    itemLevel: lopecPiece.itemLevel ?? current?.itemLevel ?? null,
+    mainStat: lopecPiece.stat ?? current?.mainStat ?? 0,
+    health: lopecPiece.health ?? current?.health ?? 0,
+    quality: lopecPiece.quality ?? current?.quality ?? 0
   };
 }
 
