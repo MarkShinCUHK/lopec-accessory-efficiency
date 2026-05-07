@@ -149,6 +149,12 @@ type EquipmentPreviewState =
   | { status: "ready"; data: EquipmentAssumptionPreview }
   | { status: "error"; message: string };
 
+interface MetricTransition {
+  from: string;
+  to: string;
+  tone?: "positive" | "negative";
+}
+
 interface LostarkHealthResponse {
   ok: boolean;
   message?: string;
@@ -1371,7 +1377,11 @@ export default function AccessoryEfficiencyClient() {
           {loadError ? <p className="errorText">{loadError}</p> : null}
 
           {loadedCharacter ? (
-            <CharacterPanel character={loadedCharacter} scoringMode={scoringMode} />
+            <CharacterPanel
+              character={loadedCharacter}
+              equipmentPreview={equipmentPreview}
+              scoringMode={scoringMode}
+            />
           ) : null}
 
           <form
@@ -2733,12 +2743,15 @@ function ResultScatterPlot({
 
 function CharacterPanel({
   character,
+  equipmentPreview,
   scoringMode
 }: {
   character: CharacterSummary;
+  equipmentPreview: EquipmentPreviewState;
   scoringMode: ScoringMode;
 }) {
   const accessories = Object.values(character.accessories);
+  const metricPreview = readMetricTransitions(equipmentPreview);
 
   return (
     <section className="characterPanel">
@@ -2752,8 +2765,13 @@ function CharacterPanel({
           <Metric
             label="현재 LOPEC"
             value={formatNumber(character.lopecScore ?? character.combatPower)}
+            transition={metricPreview?.lopec}
           />
-          <Metric label="인게임 전투력" value={formatNumber(character.combatPower)} />
+          <Metric
+            label="인게임 전투력"
+            value={formatNumber(character.combatPower)}
+            transition={metricPreview?.combatPower}
+          />
           <Metric label="아이템 레벨" value={formatNumber(character.itemAvgLevel)} />
         </div>
       </div>
@@ -2778,6 +2796,43 @@ function CharacterPanel({
       </div>
     </section>
   );
+}
+
+function readMetricTransitions(
+  preview: EquipmentPreviewState
+): { lopec?: MetricTransition; combatPower?: MetricTransition } | null {
+  if (preview.status !== "ready" || !preview.data.available || !preview.data.hasAssumption) {
+    return null;
+  }
+
+  const { data } = preview;
+  const transitions: { lopec?: MetricTransition; combatPower?: MetricTransition } = {};
+
+  if (data.baseScore !== null && data.nextScore !== null) {
+    transitions.lopec = {
+      from: formatNumber(data.baseScore),
+      to: formatNumber(data.nextScore),
+      tone: readMetricTransitionTone(data.deltaScore)
+    };
+  }
+
+  if (data.baseCombatPower !== null && data.nextCombatPower !== null) {
+    transitions.combatPower = {
+      from: formatNumber(data.baseCombatPower),
+      to: formatNumber(data.nextCombatPower),
+      tone: readMetricTransitionTone(data.deltaCombatPower)
+    };
+  }
+
+  return transitions.lopec || transitions.combatPower ? transitions : null;
+}
+
+function readMetricTransitionTone(delta: number | null): "positive" | "negative" | undefined {
+  if (delta === null || delta === 0) {
+    return undefined;
+  }
+
+  return delta > 0 ? "positive" : "negative";
 }
 
 function SlotTargetGrid({
@@ -3461,16 +3516,35 @@ function RefinementOptionList({
 function Metric({
   label,
   value,
-  tone
+  tone,
+  transition
 }: {
   label: string;
   value: string;
   tone?: "positive" | "negative";
+  transition?: MetricTransition;
 }) {
   return (
     <div className="metric">
-      <span>{label}</span>
-      <strong className={tone}>{value}</strong>
+      <span className="metricLabel">{label}</span>
+      {transition ? (
+        <div
+          className="metricTransitionValue"
+          aria-label={`${label} ${transition.from}에서 ${transition.to}로 변경 예상`}
+        >
+          <strong className="metricPreviousValue">{transition.from}</strong>
+          <span className="metricTransitionArrow" aria-hidden="true">
+            →
+          </span>
+          <strong
+            className={["metricExpectedValue", transition.tone].filter(Boolean).join(" ")}
+          >
+            {transition.to}
+          </strong>
+        </div>
+      ) : (
+        <strong className={tone}>{value}</strong>
+      )}
     </div>
   );
 }

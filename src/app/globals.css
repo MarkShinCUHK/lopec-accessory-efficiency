@@ -1989,7 +1989,7 @@ button:disabled {
   border-radius: 6px;
 }
 
-.metric span {
+.metricLabel {
   color: #69778b;
   font-size: 12px;
 }
@@ -2000,6 +2000,38 @@ button:disabled {
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.metricTransitionValue {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: baseline;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.metricTransitionValue strong {
+  overflow: visible;
+  font-size: 13px;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.metricPreviousValue {
+  color: #667386;
+}
+
+.metricExpectedValue {
+  color: #1f2937;
+  font-weight: 900;
+}
+
+.metricTransitionArrow {
+  color: #087a46;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
 }
 
 .positive {
@@ -2332,7 +2364,7 @@ button:disabled {
 [data-theme="dark"] .itemMeta,
 [data-theme="dark"] .compareLine,
 [data-theme="dark"] .priceBlock span,
-[data-theme="dark"] .metric span,
+[data-theme="dark"] .metricLabel,
 [data-theme="dark"] .equipmentPreviewScores span,
 [data-theme="dark"] .resultTable small,
 [data-theme="dark"] .graphModalHeader p,
@@ -2554,6 +2586,14 @@ button:disabled {
 [data-theme="dark"] .commonLine,
 [data-theme="dark"] .metric strong,
 [data-theme="dark"] .axisLabel {
+  color: #d8e0ec;
+}
+
+[data-theme="dark"] .metricPreviousValue {
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .metricExpectedValue {
   color: #d8e0ec;
 }
 
